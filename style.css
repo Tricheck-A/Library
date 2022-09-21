@@ -1,0 +1,233 @@
+/* GENERAL STYLING AND VARIABLES */
+
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+
+*, *:before, *:after {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+    *behavior: url(/scripts/boxsizing.htc);
+
+    font-family: 'Roboto', sans-serif;
+  }
+
+:root {
+    --font-weight-regular: 400;
+    --font-weight-bold: 700;
+    --font-weight-black: 900;
+
+    --font-size-regular: 12pt; 
+    --font-size-big: 1.2em; 
+    --font-size-heading: 2.2em;
+    --font-size-pages: 1.7em;
+
+
+    --light-grey: #F8F8F8;
+    --dark-grey: #363636;
+    --green: #75EC7D;
+}
+
+body {
+    font-size: var(--font-size-regular);
+    font-weight: var(--font-weight-regular);
+    color: var(--dark-grey);
+    background-color: var(--light-grey);
+}
+
+.heading {
+    font-size: var(--font-size-heading);
+    font-weight: var(--font-weight-black);
+}
+
+.bigFont {
+    font-size: var(--font-size-big);
+}
+
+li, ul, p, h1, body {
+    margin: 0;
+    padding: 0;
+}
+
+li {
+    list-style: none;
+}
+
+
+
+
+
+
+
+
+
+
+/* HEADER STYLING */
+
+#header, 
+.logoContainer,
+.nav {
+    display: flex;
+}
+
+#logo {
+    width: 2.6em;
+    height: 2.6em;
+}
+
+.logoContainer {
+    justify-content:center;
+    align-items: center;
+    gap: 0.5em;
+}
+
+.nav {
+    gap: 3em;
+    font-weight: var(--font-weight-bold);
+}
+
+#header {
+    background-color: var(--light-grey);
+    justify-content: space-between;
+    align-items: center;
+    padding: 50px 7.1em 65px 4.4em;
+}
+
+
+
+
+
+
+
+
+
+/* CONTENT AREA STYLING */
+
+#booksGridContainer {
+    background-color: var(--light-grey);
+    display: grid;
+    min-height: calc(100vh - 280px);
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 3em;
+    padding: 0 7.1em 50px 7.5em
+}
+
+#booksGridContainer > div.bookCard {
+    background-color: white;
+    height: 400px;
+    border-radius: 8px;
+    -webkit-box-shadow: 0px 4px 6px 2px rgba(54,54,54,0.15); 
+    box-shadow: 0px 4px 6px 2px rgba(54,54,54,0.15);
+
+    display: grid;
+    row-gap: 20px;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1.75fr 2px 1fr;
+    grid-template-areas: 
+                "bookImage bookOverview"
+                "seperationLine seperationLine"
+                "bookDescription bookDescription";
+}
+
+
+/* image styling */
+
+.bookImage {
+    grid-area: bookImage;
+    border-radius: 8px;
+    background-color: var(--dark-grey);
+
+}
+
+/* book overview styling */
+
+.bookOverview {
+    grid-area: bookOverview;
+    padding: 20px 1em 0 1em;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+span.bookTitle {
+    font-size: var(--font-size-big);
+    font-weight: var(--font-weight-black);
+}
+
+div.bookPages span {
+    font-size: var(--font-size-pages);
+    font-weight: var(--font-weight-black);
+}
+
+span.bookStatus {
+    color: var(--green);
+    font-size: var(--font-size-pages);
+    margin-right: 5px;
+}
+
+.bookPages {
+    align-self: center;
+}
+
+.bookOptions {
+    align-self: stretch;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+span.bookOptionIcon svg {
+    width: var(--font-size-big);
+    height: auto;
+    fill:#363636;
+    margin-right: 5px;
+}
+
+
+
+
+
+
+.seperationLine {
+    grid-area: seperationLine;
+
+    height: 2px;
+    margin: 0 1.5em 0 1.5em;
+    background-color: var(--light-grey);
+
+}
+
+/* book description styling */
+
+.bookDescription {
+    grid-area: bookDescription;
+    margin: -0.6em 1.5em 15px 1.5em;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+}
+
+.bookDescription p.descriptionHeader {
+    font-weight: var(--font-weight-black);
+    padding-bottom: 0.5em;
+}
+
+
+
+
+
+
+
+
+
+/* FOOTER STYLING */
+
+#footer {
+    background-color: var(--light-grey);
+    font-weight: var(--font-weight-bold);
+    display: flex;
+    justify-content: flex-end;
+    padding: 50px 7.1em 50px 4.4em;
+    text-decoration: underline;
+}
