@@ -53,6 +53,10 @@ li {
     list-style: none;
 }
 
+a:visited {
+    color: var(--dark-grey);
+}
+
 
 
 
@@ -74,8 +78,8 @@ li {
     width: 2.6em;
     height: 2.6em;
     stroke:var(--dark-grey);
-    stroke-linejoin:round
-    ;stroke-width:2px;
+    stroke-linejoin:round;
+    stroke-width:2px;
 }
 
 .cls-1{stroke:#000;stroke-linejoin:round;stroke-width:2px;}
@@ -215,8 +219,8 @@ span.bookStatusRead {
 span.bookOptionIcon svg {
     width: var(--font-size-big);
     height: auto;
-    fill:#363636;
-    margin-right: 5px;
+    margin-right: 8px;
+    fill: var(--dark-grey);
 }
 
 .bookOptionIcon svg:hover {
@@ -281,3 +285,61 @@ span.bookOptionIcon svg {
     font-weight: var(--font-weight-black);
     cursor: pointer;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@media only screen and (max-width: 800px) {
+
+    :root {
+        --font-size-regular: 10pt; 
+    }
+
+    #header {
+        padding: 20px 7.1em 20px 7.5em;
+        position: sticky;
+        top: 0;
+    }
+
+    .heading {
+        display: none;
+    }
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  @media only screen and (max-width: 600px) {
+
+    :root {
+        --font-size-regular: 10pt; 
+    }
+
+    #header {
+        padding: 20px 3em 20px 3em;
+    }
+
+    .heading {
+        display: none;
+    }
+  }
