@@ -25,6 +25,7 @@
     --light-grey: #F8F8F8;
     --dark-grey: #363636;
     --green: #75EC7D;
+    --red: #ec7575;
 }
 
 body {
@@ -69,10 +70,15 @@ li {
     display: flex;
 }
 
-#logo {
+.logo {
     width: 2.6em;
     height: 2.6em;
+    stroke:var(--dark-grey);
+    stroke-linejoin:round
+    ;stroke-width:2px;
 }
+
+.cls-1{stroke:#000;stroke-linejoin:round;stroke-width:2px;}
 
 .logoContainer {
     justify-content:center;
@@ -81,8 +87,24 @@ li {
 }
 
 .nav {
+    position: relative;
     gap: 3em;
     font-weight: var(--font-weight-bold);
+}
+
+ul.nav li:hover {
+    position: relative;
+    font-weight: var(--font-weight-black);
+    cursor: pointer;
+}
+
+ul.nav li:hover::after {
+    position: absolute;
+    content: "•";
+    right: 46%;
+    top: 25px;
+    color: var(--dark-grey);
+    font-weight: var(--font-weight-black);
 }
 
 #header {
@@ -126,6 +148,17 @@ li {
                 "bookImage bookOverview"
                 "seperationLine seperationLine"
                 "bookDescription bookDescription";
+    transition: all .25s ease-in-out
+}
+
+#booksGridContainer > div.bookCard:hover {
+    -webkit-transform: translate(0, -2px);
+    -moz-transform: translate(0, -2px);
+    -ms-transform: translate(0, -2px);
+    -o-transform: translate(0, -2px);
+    transform: translate(0, -2px);
+    -webkit-box-shadow: 0px 6px 8px 2px rgba(54,54,54,0.25); 
+    box-shadow: 0px 6px 8px 2px rgba(54,54,54,0.25);
 }
 
 
@@ -134,8 +167,10 @@ li {
 .bookImage {
     grid-area: bookImage;
     border-radius: 8px;
+    background-size: cover;
+    background-position-x: center;
+    background-position-y: center;
     background-color: var(--dark-grey);
-
 }
 
 /* book overview styling */
@@ -159,7 +194,7 @@ div.bookPages span {
     font-weight: var(--font-weight-black);
 }
 
-span.bookStatus {
+span.bookStatusRead {
     color: var(--green);
     font-size: var(--font-size-pages);
     margin-right: 5px;
@@ -184,6 +219,14 @@ span.bookOptionIcon svg {
     margin-right: 5px;
 }
 
+.bookOptionIcon svg:hover {
+    cursor: pointer;
+}
+
+.bookStatus:hover {
+    cursor: default;
+}
+
 
 
 
@@ -206,6 +249,8 @@ span.bookOptionIcon svg {
     line-height: 1.5;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .bookDescription p.descriptionHeader {
@@ -230,4 +275,9 @@ span.bookOptionIcon svg {
     justify-content: flex-end;
     padding: 50px 7.1em 50px 4.4em;
     text-decoration: underline;
+}
+
+#footer li:hover {
+    font-weight: var(--font-weight-black);
+    cursor: pointer;
 }
