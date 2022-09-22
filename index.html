@@ -6,24 +6,65 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Book Library</title>
     <link rel="stylesheet" href="style.css" defer>
-    <script src="script.js"></script>
+    <script defer src="script.js"></script>
 </head>
 <body>
-    <div id="header">
+
+    <!-- ADD BOOK OVERLAY -->
+    <div id="addBookOverlay">
+        <div id="addBookContainer">
+            <h1 class="heading">Add a book</h1>
+            <div class="textInput">
+                <label for="bookTitle" class="textInputLabel boldFont">Title</label><br>
+                <input type="text" name="bookTitle" id="bookTitle" placeholder="Walk of the Mustermann" required>
+            </div>
+
+            <div class="textInput">
+                <label for="bookAuthor" class="textInputLabel boldFont">Author</label><br>
+                <input type="text" name="bookAuthor" id="bookAuthor" placeholder="Max Mustermann" required>
+            </div>
+
+            <div class="pagesTextInput">
+                <label for="readPages" class="textInputLabel boldFont">Read Pages</label><br>
+                <input type="text" name="readPages" id="readPages" placeholder="0" required>
+            </div>
+
+            <div class="pagesTextInput">
+                <label for="totalPages" class="textInputLabel boldFont">Total Pages</label><br>
+                <input type="text" name="totalPages" id="totalPages" placeholder="450" required>
+            </div>
+
+            <div class="textareaInput">
+                <label for="bookDescription" class="textInputLabel boldFont">Description</label><br>
+                <textarea name="bookDescription" id="bookDescription" cols="30" rows="4" maxlength="180" placeholder="Add a description to your book (max. 180 character)"></textarea>
+            </div>
+
+            <div class="submitInput">
+                <button type="submit" name="submitBookButton" id="submitBookButton">Add book</button>
+                <button name="cancelButton" id="cancelButton" class="cancelButton">✘</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- HEADER -->
+    <div id="header" class="blur">
         <div class="logoContainer">
             <?xml version="1.0" encoding="UTF-8"?><svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42.24 40.91"><defs></defs><path class="logo" d="M4.55,36.01l-1.15-.35c-1.07-.47-1.79-1.27-2.18-2.4-.38-1.13-.28-2.25,.32-3.35l3-6.8v12.9Zm9.3,3.9c-1.13,0-2.1-.4-2.9-1.2-.8-.8-1.2-1.77-1.2-2.9v-10.35l4.6,13.1c.07,.27,.17,.5,.3,.7,.13,.2,.3,.42,.5,.65h-1.3Zm9.4-1.2c-.7,.3-1.43,.23-2.2-.2-.77-.43-1.32-1.03-1.65-1.8L9.85,10.76c-.33-.77-.3-1.52,.1-2.25s1.02-1.27,1.85-1.6L27.7,1.16c.77-.27,1.52-.2,2.25,.2s1.27,1,1.6,1.8l9.55,25.65c.23,.83,.18,1.65-.15,2.45s-.92,1.35-1.75,1.65l-15.95,5.8Zm-4.1-24.75c.4,0,.75-.15,1.05-.45,.3-.3,.45-.65,.45-1.05,0-.4-.15-.75-.45-1.05-.3-.3-.65-.45-1.05-.45s-.75,.15-1.05,.45c-.3,.3-.45,.65-.45,1.05s.15,.75,.45,1.05c.3,.3,.65,.45,1.05,.45Zm3.15,21.85l15.9-5.8L28.65,4.06l-15.9,5.75,9.55,26ZM12.75,9.81l15.9-5.75-15.9,5.75Z"/></svg>
             <h1 class="heading">library+</h1>
         </div>
 
         <ul class="nav">
-            <li class="bigFont">+ ADD BOOK</li>
-            <li class="bigFont" >DELETE ALL</li>
-            <li class="bigFont" >SIGN IN</li>
+            <li id="addBookButton" class="bigFont">+ ADD BOOK</li>
+            <li id="deleteBooksButton" class="bigFont" >DELETE ALL</li>
+            <li id="signInButton" class="bigFont" >SIGN IN</li>
         </ul>
     </div>
 
 
-    <div id="booksGridContainer">
+
+    <!-- MAIN CONTAINER WITH BOOKS CARDS -->
+    <div id="booksGridContainer" class="blur">
         <div class="bookCard">
             <div class= "bookImage" style="background-image: url('https://images-na.ssl-images-amazon.com/images/I/91vJKCY1okL.jpg');"></div>
             <div class= "bookOverview">
@@ -45,7 +86,7 @@
             </div>
             <div class= "seperationLine"></div>
             <div class= "bookDescription">
-                <p class="descriptionHeader">Description</p>
+                <p class="descriptionHeader boldFont">Description</p>
                 <p class="descriptionText">Lorem ipsum dolor sit amet, consetetur sadipscing  elitr, sed diam nonumy eirmod tempor invidunt ut  labore et dolore magna aliquyam erat, sed diam  voluptua. At vero eos et accusam et justo duo </p>
             </div>
         </div>
@@ -70,15 +111,16 @@
             </div>
             <div class= "seperationLine"></div>
             <div class= "bookDescription">
-                <p class="descriptionHeader">Description</p>
+                <p class="descriptionHeader boldFont">Description</p>
                 <p class="descriptionText">Lorem ipsum dolor sit amet, consetetur sadipscing  elitr, sed diam nonumy eirmod tempor invidunt ut  labore et dolore magna aliquyam erat, sed diam  voluptua. At vero eos et accusam et justo duo </p>
             </div>
         </div>
-
     </div>
 
 
-    <div id="footer">
+
+    <!-- FOOTER -->
+    <div id="footer" class="blur">
         <li class="bigFont"><a href="https://github.com/Tricheck-A/Library">GITHUB</a></li>
     </div>
 </body>

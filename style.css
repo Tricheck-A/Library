@@ -22,6 +22,7 @@
     --font-size-pages: 1.7em;
 
 
+    --white: #FFF;
     --light-grey: #F8F8F8;
     --dark-grey: #363636;
     --green: #75EC7D;
@@ -44,6 +45,10 @@ body {
     font-size: var(--font-size-big);
 }
 
+.boldFont {
+    font-weight: var(--font-weight-black);
+}
+
 li, ul, p, h1, body {
     margin: 0;
     padding: 0;
@@ -57,6 +62,9 @@ a:visited {
     color: var(--dark-grey);
 }
 
+#header, #booksGridContainer, #footer {
+    transition: all .1s ease-in-out;
+}
 
 
 
@@ -152,6 +160,7 @@ ul.nav li:hover::after {
                 "bookImage bookOverview"
                 "seperationLine seperationLine"
                 "bookDescription bookDescription";
+
     transition: all .25s ease-in-out
 }
 
@@ -164,7 +173,6 @@ ul.nav li:hover::after {
     -webkit-box-shadow: 0px 6px 8px 2px rgba(54,54,54,0.25); 
     box-shadow: 0px 6px 8px 2px rgba(54,54,54,0.25);
 }
-
 
 /* image styling */
 
@@ -236,6 +244,9 @@ span.bookOptionIcon svg {
 
 
 
+
+
+
 .seperationLine {
     grid-area: seperationLine;
 
@@ -244,6 +255,11 @@ span.bookOptionIcon svg {
     background-color: var(--light-grey);
 
 }
+
+
+
+
+
 
 /* book description styling */
 
@@ -290,9 +306,104 @@ span.bookOptionIcon svg {
 
 
 
+/* ADD BOOK OVERLAY STYLING */
+
+#addBookOverlay {
+    position: absolute;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.3);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    transition: all .25s ease-in-out;
+}
+
+#addBookContainer {
+    display: flex;
+    flex-direction: column;
+    min-height: 700px;
+    width: 30vw;
+    border-radius: 8px;
+    padding: 50px 4em 50px 4em;
+    background-color: var(--white);
+    -webkit-box-shadow: 0px 4px 6px 2px rgba(54,54,54,0.15); 
+    box-shadow: 0px 4px 6px 2px rgba(54,54,54,0.15);
+    transition: all .25s ease-in-out;
+}
+
+#addBookContainer h1.heading {
+    padding-bottom: 20px;
+}
+
+label{
+    font-size: 0.9em;
+}
+
+input[type="text"] {
+    height: 40px;
+}
+
+input[type="text"], textarea {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none !important;
+    margin: 10px 0 10px 0;
+    padding-left: 15px;
+    border: solid 2px var(--dark-grey);
+    border-radius: 5px;
+}
+
+textarea {
+    padding: 10px 15px 10px 15px;
+    margin-bottom: 40px;
+    resize: none;
+}
+
+div.submitInput{
+    display: flex;
+    justify-content: space-between;
+}
+
+button {
+    height: 40px;
+    font-weight: var(--font-weight-black);
+    font-size: 0.9em;
+    color: var(--dark-grey);
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+}
+
+button.cancelButton {
+    background-color: var(--red);
+    padding: 10px 15px 10px 15px;
+}
+
+button[type="submit"] {
+    background-color: var(--green);
+    padding: 10px 3em 10px 3em;
+}
+
+.blur {
+    transition: all .25s ease-in-out;
+    filter: blur(0px);
+    -webkit-filter: blur(0px);
+}
 
 
 
+
+
+
+@media only screen and (max-width: 1280px) {
+
+    #addBookContainer {
+        width: 55vw;
+    }
+  }
 
 
 
@@ -314,6 +425,11 @@ span.bookOptionIcon svg {
     .heading {
         display: none;
     }
+
+    #addBookContainer {
+        width: 90vw;
+        min-height: 55vh;
+    }  
   }
 
 
