@@ -341,11 +341,11 @@ label{
     font-size: 0.9em;
 }
 
-input[type="text"] {
+input[type="text"], input[type="number"] {
     height: 40px;
 }
 
-input[type="text"], textarea {
+input[type="text"], input[type="number"], textarea {
     width: 100%;
     -webkit-appearance: none;
     appearance: none;

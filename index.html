@@ -7,6 +7,7 @@
     <title>Book Library</title>
     <link rel="stylesheet" href="style.css" defer>
     <script defer src="script.js"></script>
+    <script defer src="jquery.js"></script>
 </head>
 <body>
 
@@ -26,12 +27,12 @@
 
             <div class="pagesTextInput">
                 <label for="readPages" class="textInputLabel boldFont">Read Pages</label><br>
-                <input type="text" name="readPages" id="readPagesInput" placeholder="0" required>
+                <input type="number" name="readPages" id="readPagesInput" placeholder="0" min="0" required>
             </div>
 
             <div class="pagesTextInput">
                 <label for="totalPages" class="textInputLabel boldFont">Total Pages</label><br>
-                <input type="text" name="totalPages" id="totalPagesInput" placeholder="450" required>
+                <input type="number" name="totalPages" id="totalPagesInput" placeholder="450" min="0" required>
             </div>
 
             <div class="textareaInput">
@@ -65,7 +66,7 @@
 
     <!-- MAIN CONTAINER WITH BOOKS CARDS -->
     <div id="booksGridContainer" class="blur">
-        <div class="bookCard">
+        <!-- <div class="bookCard">
             <div class= "bookImage" style="background-image: url('https://images-na.ssl-images-amazon.com/images/I/91vJKCY1okL.jpg');"></div>
             <div class= "bookOverview">
                 <div class="authorAndTitle">
@@ -114,7 +115,7 @@
                 <p class="descriptionHeader boldFont">Description</p>
                 <p class="descriptionText">Lorem ipsum dolor sit amet, consetetur sadipscing  elitr, sed diam nonumy eirmod tempor invidunt ut  labore et dolore magna aliquyam erat, sed diam  voluptua. At vero eos et accusam et justo duo </p>
             </div>
-        </div>
+        </div> -->
     </div>
 
 
