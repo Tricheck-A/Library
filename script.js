@@ -148,8 +148,10 @@ addBookButton.addEventListener("click", function(){
 // ADDS BOOK TO LIBRARY AFTER PRESSING THE SUBMIT BUTTON
 submitBookButton.addEventListener("click", function(){
   addBookToLibrary();
-  unblurBg();
-
+  
+  bgLoadingScreen();
+  displayLoading();
+  
   for (let i = books.length - 1; i < books.length; i++){
     getGoogleImageSearchResult(books[i].title + " by " + books[i].author, displayNewBookOnPage);
   };
@@ -194,6 +196,11 @@ function unblurBg(){
 };
 
 
+function bgLoadingScreen(){
+  addBookOverlay.style.display = "none"     //addBookContainer disapperas
+};
+
+
 
 
 
@@ -228,6 +235,8 @@ function getGoogleImageSearchResult(query, fn) {
     .then((output) => {
         imageLink = output.items[0].link;
         fn();
+        hideLoading();
+        unblurBg();
         return imageLink;
     })
     .catch((err) => {
@@ -238,3 +247,14 @@ function getGoogleImageSearchResult(query, fn) {
 
     return;
 }
+
+
+
+// Loading Animation
+let displayLoading = () => {
+  document.getElementById("loaderContainer").style.display = 'flex';
+};
+
+let hideLoading = () => {
+  document.getElementById("loaderContainer").style.display = 'none';
+};
