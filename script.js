@@ -57,7 +57,7 @@ function addBookToLibrary() {
 function displayNewBookOnPage() {
   for (let i = books.length - 1; i < books.length; i++){
     grid.innerHTML +=
-    `<div class="bookCard">
+    `<div class="bookCard" data-book-index="${[i]}">
     <div class= "bookImage" style="background-image: url('${imageLink}');"></div>
     <div class= "bookOverview">
         <div class="authorAndTitle">
@@ -70,8 +70,8 @@ function displayNewBookOnPage() {
         </div>
         <div class="bookOptions">
             <div class="editBook">
-                <span class="bookOptionIcon"><?xml version="1.0" encoding="UTF-8"?><svg id="bookEditIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36.65 36.65"><defs></defs><path class="bookOptionIcon" d="M3,33.65h2.2L27.35,11.5l-2.2-2.2L3,31.45v2.2ZM33.7,9.35l-6.4-6.4,2.1-2.1C29.97,.28,30.67,0,31.5,0c.83,0,1.53,.28,2.1,.85l2.2,2.2c.57,.57,.85,1.27,.85,2.1s-.28,1.53-.85,2.1l-2.1,2.1Zm-2.1,2.1L6.4,36.65H0v-6.4L25.2,5.05l6.4,6.4Zm-5.35-1.05l-1.1-1.1,2.2,2.2-1.1-1.1Z"/></svg></span>
-                <span class="bookOptionIcon"><?xml version="1.0" encoding="UTF-8"?><svg class="bookDeleteIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 36"><defs></defs><path class="bookOptionIcon" d="M5.05,36c-.83,0-1.54-.29-2.12-.88-.58-.58-.88-1.29-.88-2.12V4.5H0V1.5H9.4V0h13.2V1.5h9.4v3h-2.05v28.5c0,.8-.3,1.5-.9,2.1s-1.3,.9-2.1,.9H5.05ZM26.95,4.5H5.05v28.5H26.95V4.5ZM10.35,28.7h3V8.75h-3V28.7Zm8.3,0h3V8.75h-3V28.7ZM5.05,4.5v0Z"/></svg></span>
+                <span class="bookOptionIcon"><?xml version="1.0" encoding="UTF-8"?><svg id="bookEditIcon" data-editIcon-index="${[i]}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36.65 36.65"><defs></defs><path class="bookOptionIcon" d="M3,33.65h2.2L27.35,11.5l-2.2-2.2L3,31.45v2.2ZM33.7,9.35l-6.4-6.4,2.1-2.1C29.97,.28,30.67,0,31.5,0c.83,0,1.53,.28,2.1,.85l2.2,2.2c.57,.57,.85,1.27,.85,2.1s-.28,1.53-.85,2.1l-2.1,2.1Zm-2.1,2.1L6.4,36.65H0v-6.4L25.2,5.05l6.4,6.4Zm-5.35-1.05l-1.1-1.1,2.2,2.2-1.1-1.1Z"/></svg></span>
+                <span class="bookOptionIcon"><?xml version="1.0" encoding="UTF-8"?><svg class="bookDeleteIcon" data-deleteIcon-index="${[i]}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 36"><defs></defs><path class="bookOptionIcon" d="M5.05,36c-.83,0-1.54-.29-2.12-.88-.58-.58-.88-1.29-.88-2.12V4.5H0V1.5H9.4V0h13.2V1.5h9.4v3h-2.05v28.5c0,.8-.3,1.5-.9,2.1s-1.3,.9-2.1,.9H5.05ZM26.95,4.5H5.05v28.5H26.95V4.5ZM10.35,28.7h3V8.75h-3V28.7Zm8.3,0h3V8.75h-3V28.7ZM5.05,4.5v0Z"/></svg></span>
             </div>
             <span class="bookStatusRead">${books[i].status}</span>
         </div>
@@ -81,11 +81,20 @@ function displayNewBookOnPage() {
         <p class="descriptionHeader boldFont">Description</p>
         <p class="descriptionText">${books[i].description}</p>
     </div>
-    </div>`
+    </div>`;
   };
+
+  // Loops through the delete Icons and adds them a click Event Listener to remove the Book from the display AND the books-array
+  for (let i = 0; i < books.length; i++){
+    document.querySelector(`svg[data-deleteIcon-index="${[i]}"]`).addEventListener ("click", function () {
+      console.log (`You removed number ${[i]}`);
+      document.querySelector(`.bookCard[data-book-index="${[i]}"]`).remove();
+      books.splice([i],1);
+
+      console.log (books);
+    });
+  }
 };
-
-
 
 
 
@@ -96,7 +105,6 @@ let deleteBooksButton = document.getElementById("deleteBooksButton");
 let addBookOverlay = document.getElementById("addBookOverlay");
 let grid = document.getElementById("booksGridContainer");
 let imageLink = "https://libribook.com/Images/liebe-auf-den-zweiten-kuss-pdf.jpg";
-// let imageLink = "";
 
 // Input Fields
 
