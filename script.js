@@ -114,6 +114,7 @@ let readPagesInput = document.getElementById("readPagesInput")
 let totalPagesInput = document.getElementById("totalPagesInput")
 let bookDescriptionInput = document.getElementById("bookDescriptionInput")
 let submitBookButton = document.getElementById("submitBookButton")
+let submitBooksDeletionButton = document.getElementById("submitBooksDeletion")
 
 const blurObjs = Array.from(
   document.getElementsByClassName('blur')
@@ -129,18 +130,23 @@ const blurObjs = Array.from(
 
 // BOOK FORM APPEARS AND DISAPPEARS
 addBookButton.addEventListener("click", function(){
-  blurBg()
+  blurBg();
+  addBookOverlay.style.display = "flex"   //addBookContainer appears
 
-  let cancelButton = document.getElementById("cancelButton");
-  cancelButton.addEventListener("click", function(){
-    unblurBg()
-  });
+  let cancelButton = document.getElementsByClassName("cancelButton");
+  for (var i = 0; i < cancelButton.length; i++) {
+    cancelButton[i].addEventListener("click", function(){
+      unblurBg();
+      document.getElementById("addBookOverlay").style.display = "none"
+      document.getElementById("deleteAllBooksOverlay").style.display = "none"
+    })};
 
 
   addBookOverlay.addEventListener("click", function(e){ // Overlay disappers when clicking on it, but NOT when clicking on the addButton Window
     if (e.target !== this)
     return;
-    unblurBg()
+    unblurBg();
+    addBookOverlay.style.display = "none"     //addBookContainer disapperas
   });
 });
 
@@ -160,8 +166,23 @@ submitBookButton.addEventListener("click", function(){
 
 // DELETES ALL BOOK IN THE LIBRARY
 deleteBooksButton.addEventListener("click", function(){
+  blurBg();
+  document.getElementById("deleteAllBooksOverlay").style.display = "flex";     //addBookContainer disapperas
+
+  let cancelButton = document.getElementsByClassName("cancelButton");
+  for (var i = 0; i < cancelButton.length; i++) {
+    cancelButton[i].addEventListener("click", function(){
+      unblurBg();
+      document.getElementById("addBookOverlay").style.display = "none"
+      document.getElementById("deleteAllBooksOverlay").style.display = "none"
+  })};
+});
+
+submitBooksDeletionButton.addEventListener("click", function(){
   books = [];
-  grid.innerHTML = ""
+  grid.innerHTML = "";
+  unblurBg();
+  document.getElementById("deleteAllBooksOverlay").style.display = "none"
 });
 
 
@@ -181,8 +202,6 @@ function blurBg(){
     obj.style.filter = "blur(3px)";
     obj.style.webkitFilter = "blur(3px)";
   });
-
-  addBookOverlay.style.display = "flex"   //addBookContainer appears
 };
 
 
@@ -191,8 +210,6 @@ function unblurBg(){
     obj.style.filter = "blur(0px)";
     obj.style.webkitFilter = "blur(0px)";
     });
-
-    addBookOverlay.style.display = "none"     //addBookContainer disapperas
 };
 
 
@@ -237,12 +254,13 @@ function getGoogleImageSearchResult(query, fn) {
         fn();
         hideLoading();
         unblurBg();
+        addBookOverlay.style.display = "none"     //addBookContainer disapperas
         return imageLink;
     })
     .catch((err) => {
     console.error(err)
     fn()
-    imageLink = "https://libribook.com/Images/liebe-auf-den-zweiten-kuss-pdf.jpg"
+    imageLink = "https://libribook.com/Images/liebe-auf-den-zweiten-kuss-pdf.jpg";
     });
 
     return;

@@ -42,17 +42,29 @@
 
             <div class="submitInput">
                 <button type="submit" name="submitBookButton" id="submitBookButton">Add book</button>
-                <button name="cancelButton" id="cancelButton" class="cancelButton">✘</button>
+                <button name="cancelButton" id="cancelButton" class="cancelButton">🞭</button>
             </div>
         </div>
     </div>
 
 
 
-    <!-- ADD BOOK OVERLAY -->
+    <!-- LOADING SCREEN -->
     <div id="loaderContainer"><div></div><div></div><div></div><div></div></div>
 
+    <!-- DELETE ALL BOOKS CONFIRMATION SCREEN -->
+    <div id="deleteAllBooksOverlay">
+        <div id="deleteAllBooksContainer">
+            <p class="boldFont">Delete all books</p>
+            <p class="descriptionText">You are about to delete every book in your library. You can not undo this later.
+                                        Are you sure about it?</p>
 
+            <div class="submitInput">
+                <button type="submit" name="submitBooksDeletion" id="submitBooksDeletion">Yes, I am sure</button>
+                <button name="cancelButton" id="cancelButton" class="cancelButton">No</button>
+            </div>
+        </div>
+    </div>
 
     <!-- HEADER -->
     <div id="header" class="blur">
