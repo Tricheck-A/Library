@@ -9,22 +9,17 @@ class Book {
     this.description = description;
     this.status = status;
     this.image = imageLink;
+    this.id = 0;
   }
-
 
   
 
-  delete = function(){
-    let elem = document.querySelector(`[data-book-index="${books.indexOf(this)}"]`);
-    elem.remove();
-    books.splice([books.indexOf(this)],1);
-  }
 
-  createButtonEvents = function(){
-    let deleteBtn = document.querySelector(`svg[data-deleteIcon-index="${books.indexOf(this)}"]`)
-    deleteBtn.addEventListener ("click", function () {
-      console.log(books);
-    });
+
+
+
+  updateId = function(){
+    this.id = books.indexOf(this);
   }
 
   getGoogleImageSearchResult = function (query, fn, param) {
@@ -57,6 +52,7 @@ class Book {
     
     return;
 }
+
 };
 
 
@@ -139,7 +135,15 @@ function displayNewBookOnPage(book) {
     </div>`;
 
       console.log(books);
-      book.createButtonEvents();
+      
+      book.updateId();
+
+      for (let i = 0; i < books.length; i++){         // Loops through every Delete-Icon and adds Event Listeners based on Index
+      document.querySelector(`[data-deleteIcon-index="${i}"]`).addEventListener ("click", function () {
+          document.querySelector(`[data-book-index="${i}"]`).remove();
+          books.splice([books.indexOf(book)],1);
+          book.updateId();
+      })};
 };
   
 
