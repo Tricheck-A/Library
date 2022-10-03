@@ -8,8 +8,61 @@ class Book {
     this.totalPages = totalPages;
     this.description = description;
     this.status = status;
+    this.image = imageLink;
   }
+
+
+  
+
+  delete = function(){
+    let elem = document.querySelector(`[data-book-index="${books.indexOf(this)}"]`);
+    elem.remove();
+    books.splice([books.indexOf(this)],1);
+  }
+
+  createButtonEvents = function(){
+    let deleteBtn = document.querySelector(`svg[data-deleteIcon-index="${books.indexOf(this)}"]`)
+    deleteBtn.addEventListener ("click", function () {
+      console.log(books);
+    });
+  }
+
+  getGoogleImageSearchResult = function (query, fn, param) {
+
+    // Add API credentials
+    let apikey = "AIzaSyDKj4Q32r_62_LANxSPWutJ1A5oP8M7xvc";
+    let searchEngineID = "90243a17d69424fb5";
+
+    // Building call to API
+    let url = "https://www.googleapis.com/customsearch/v1?key=" + apikey + "&cx=" + searchEngineID
+      + "&q=" + query + " cover" + "&searchType=" + "image" + "&num=" + "1";
+
+    fetch(url)
+    .then(result => result.json())
+    .then((output) => {
+        this.image = output.items[0].link;
+        hideLoading();
+        unblurBg();
+        fn(param);
+        addBookOverlay.style.display = "none"     //addBookContainer disappears
+        return this.image;
+    })
+    .catch((err) => {
+    console.error(err)
+    this.image = "https://libribook.com/Images/liebe-auf-den-zweiten-kuss-pdf.jpg";
+    hideLoading();
+    unblurBg();
+    fn(param);
+    });
+    
+    return;
+}
 };
+
+
+
+
+
 
 function addBookToLibrary() {
   let userInputTitle = bookTitleInput.value;
@@ -40,61 +93,55 @@ function addBookToLibrary() {
   if (bookDescriptionInput.value == "" || bookDescriptionInput.value == undefined){
     userInputDescription = "No description added";
   }
-
-
+  
 
   const book = new Book (userInputTitle, userInputAuthor, userInputReadPages, userInputTotalPages, userInputDescription, bookStatus);
+
+  book.getGoogleImageSearchResult(userInputTitle + " by " + userInputAuthor, displayNewBookOnPage, book);
   
-  if (!books.includes(book.title)){
+  if (books.indexOf(book.title) != false){
     books.push(book);
   }
 
-  console.log(books);
-}
+  };
 
 
 
-function displayNewBookOnPage() {
-  for (let i = books.length - 1; i < books.length; i++){
+function displayNewBookOnPage(book) {
+
+  // grid.innerHTML = "";
+
     grid.innerHTML +=
-    `<div class="bookCard" data-book-index="${[i]}">
-    <div class= "bookImage" style="background-image: url('${imageLink}');"></div>
+    `<div class="bookCard" data-book-index="${books.indexOf(book)}">
+    <div class= "bookImage" style="background-image: url('${book.image}');"></div>
     <div class= "bookOverview">
         <div class="authorAndTitle">
-            <span class="bookTitle">${books[i].title}</span>
-            <p class="bookAuthor">by ${books[i].author}</p>
+            <span class="bookTitle">${book.title}</span>
+            <p class="bookAuthor">by ${book.author}</p>
         </div>
         <div class="bookPages">
-            <span class="readPages">${books[i].readPages} </span>
-            <span class="totalPages">/ ${books[i].totalPages} </span>
+            <span class="readPages">${book.readPages} </span>
+            <span class="totalPages">/ ${book.totalPages} </span>
         </div>
         <div class="bookOptions">
             <div class="editBook">
-                <span class="bookOptionIcon"><?xml version="1.0" encoding="UTF-8"?><svg id="bookEditIcon" data-editIcon-index="${[i]}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36.65 36.65"><defs></defs><path class="bookOptionIcon" d="M3,33.65h2.2L27.35,11.5l-2.2-2.2L3,31.45v2.2ZM33.7,9.35l-6.4-6.4,2.1-2.1C29.97,.28,30.67,0,31.5,0c.83,0,1.53,.28,2.1,.85l2.2,2.2c.57,.57,.85,1.27,.85,2.1s-.28,1.53-.85,2.1l-2.1,2.1Zm-2.1,2.1L6.4,36.65H0v-6.4L25.2,5.05l6.4,6.4Zm-5.35-1.05l-1.1-1.1,2.2,2.2-1.1-1.1Z"/></svg></span>
-                <span class="bookOptionIcon"><?xml version="1.0" encoding="UTF-8"?><svg class="bookDeleteIcon" data-deleteIcon-index="${[i]}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 36"><defs></defs><path class="bookOptionIcon" d="M5.05,36c-.83,0-1.54-.29-2.12-.88-.58-.58-.88-1.29-.88-2.12V4.5H0V1.5H9.4V0h13.2V1.5h9.4v3h-2.05v28.5c0,.8-.3,1.5-.9,2.1s-1.3,.9-2.1,.9H5.05ZM26.95,4.5H5.05v28.5H26.95V4.5ZM10.35,28.7h3V8.75h-3V28.7Zm8.3,0h3V8.75h-3V28.7ZM5.05,4.5v0Z"/></svg></span>
+                <span class="bookOptionIcon"><?xml version="1.0" encoding="UTF-8"?><svg id="bookEditIcon" data-editIcon-index="${books.indexOf(book)}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36.65 36.65"><defs></defs><path class="bookOptionIcon" d="M3,33.65h2.2L27.35,11.5l-2.2-2.2L3,31.45v2.2ZM33.7,9.35l-6.4-6.4,2.1-2.1C29.97,.28,30.67,0,31.5,0c.83,0,1.53,.28,2.1,.85l2.2,2.2c.57,.57,.85,1.27,.85,2.1s-.28,1.53-.85,2.1l-2.1,2.1Zm-2.1,2.1L6.4,36.65H0v-6.4L25.2,5.05l6.4,6.4Zm-5.35-1.05l-1.1-1.1,2.2,2.2-1.1-1.1Z"/></svg></span>
+                <span class="bookOptionIcon"><?xml version="1.0" encoding="UTF-8"?><svg class="bookDeleteIcon" data-deleteIcon-index="${books.indexOf(book)}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 36"><defs></defs><path class="bookOptionIcon" d="M5.05,36c-.83,0-1.54-.29-2.12-.88-.58-.58-.88-1.29-.88-2.12V4.5H0V1.5H9.4V0h13.2V1.5h9.4v3h-2.05v28.5c0,.8-.3,1.5-.9,2.1s-1.3,.9-2.1,.9H5.05ZM26.95,4.5H5.05v28.5H26.95V4.5ZM10.35,28.7h3V8.75h-3V28.7Zm8.3,0h3V8.75h-3V28.7ZM5.05,4.5v0Z"/></svg></span>
             </div>
-            <span class="bookStatusRead">${books[i].status}</span>
+            <span class="bookStatusRead">${book.status}</span>
         </div>
     </div>
     <div class= "seperationLine"></div>
     <div class= "bookDescription">
         <p class="descriptionHeader boldFont">Description</p>
-        <p class="descriptionText">${books[i].description}</p>
+        <p class="descriptionText">${book.description}</p>
     </div>
     </div>`;
-  };
 
-  // Loops through the delete Icons and adds them a click Event Listener to remove the Book from the display AND the books-array
-  for (let i = 0; i < books.length; i++){
-    document.querySelector(`svg[data-deleteIcon-index="${[i]}"]`).addEventListener ("click", function () {
-      console.log (`You removed number ${[i]}`);
-      document.querySelector(`.bookCard[data-book-index="${[i]}"]`).remove();
-      books.splice([i],1);
-
-      console.log (books);
-    });
-  }
+      console.log(books);
+      book.createButtonEvents();
 };
+  
 
 
 
@@ -133,13 +180,7 @@ addBookButton.addEventListener("click", function(){
   blurBg();
   addBookOverlay.style.display = "flex"   //addBookContainer appears
 
-  let cancelButton = document.getElementsByClassName("cancelButton");
-  for (var i = 0; i < cancelButton.length; i++) {
-    cancelButton[i].addEventListener("click", function(){
-      unblurBg();
-      document.getElementById("addBookOverlay").style.display = "none"
-      document.getElementById("deleteAllBooksOverlay").style.display = "none"
-    })};
+  addEventListenerToCancelBtns ()
 
 
   addBookOverlay.addEventListener("click", function(e){ // Overlay disappers when clicking on it, but NOT when clicking on the addButton Window
@@ -153,14 +194,10 @@ addBookButton.addEventListener("click", function(){
 
 // ADDS BOOK TO LIBRARY AFTER PRESSING THE SUBMIT BUTTON
 submitBookButton.addEventListener("click", function(){
-  addBookToLibrary();
-  
   bgLoadingScreen();
   displayLoading();
-  
-  for (let i = books.length - 1; i < books.length; i++){
-    getGoogleImageSearchResult(books[i].title + " by " + books[i].author, displayNewBookOnPage);
-  };
+
+  addBookToLibrary();
 });
 
 
@@ -169,13 +206,7 @@ deleteBooksButton.addEventListener("click", function(){
   blurBg();
   document.getElementById("deleteAllBooksOverlay").style.display = "flex";     //addBookContainer disapperas
 
-  let cancelButton = document.getElementsByClassName("cancelButton");
-  for (var i = 0; i < cancelButton.length; i++) {
-    cancelButton[i].addEventListener("click", function(){
-      unblurBg();
-      document.getElementById("addBookOverlay").style.display = "none"
-      document.getElementById("deleteAllBooksOverlay").style.display = "none"
-  })};
+  addEventListenerToCancelBtns ()
 });
 
 submitBooksDeletionButton.addEventListener("click", function(){
@@ -237,34 +268,36 @@ function bgLoadingScreen(){
 
 
 
-function getGoogleImageSearchResult(query, fn) {
+// function getGoogleImageSearchResult(query, fn, param) {
 
-    // Add API credentials
-    let apikey = "AIzaSyDKj4Q32r_62_LANxSPWutJ1A5oP8M7xvc";
-    let searchEngineID = "90243a17d69424fb5";
+//     // Add API credentials
+//     let apikey = "AIzaSyDKj4Q32r_62_LANxSPWutJ1A5oP8M7xvc";
+//     let searchEngineID = "90243a17d69424fb5";
 
-    // Building call to API
-    let url = "https://www.googleapis.com/customsearch/v1?key=" + apikey + "&cx=" + searchEngineID
-      + "&q=" + query + " cover" + "&searchType=" + "image" + "&num=" + "1";
+//     // Building call to API
+//     let url = "https://www.googleapis.com/customsearch/v1?key=" + apikey + "&cx=" + searchEngineID
+//       + "&q=" + query + " cover" + "&searchType=" + "image" + "&num=" + "1";
 
-    fetch(url)
-    .then(result => result.json())
-    .then((output) => {
-        imageLink = output.items[0].link;
-        fn();
-        hideLoading();
-        unblurBg();
-        addBookOverlay.style.display = "none"     //addBookContainer disapperas
-        return imageLink;
-    })
-    .catch((err) => {
-    console.error(err)
-    fn()
-    imageLink = "https://libribook.com/Images/liebe-auf-den-zweiten-kuss-pdf.jpg";
-    });
+//     fetch(url)
+//     .then(result => result.json())
+//     .then((output) => {
+//         imageLink = output.items[0].link;
+//         hideLoading();
+//         unblurBg();
+//         fn(param);
+//         addBookOverlay.style.display = "none"     //addBookContainer disapperas
+//         return imageLink;
+//     })
+//     .catch((err) => {
+//     console.error(err)
+//     imageLink = "https://libribook.com/Images/liebe-auf-den-zweiten-kuss-pdf.jpg";
+//     hideLoading();
+//     unblurBg();
+//     fn(param);
+//     });
 
-    return;
-}
+//     return;
+// }
 
 
 
@@ -276,3 +309,26 @@ let displayLoading = () => {
 let hideLoading = () => {
   document.getElementById("loaderContainer").style.display = 'none';
 };
+
+
+
+
+
+
+// Add Event Listeners to all Cancel Buttons
+function addEventListenerToCancelBtns (){
+  let cancelButton = document.getElementsByClassName("cancelButton");
+  for (var i = 0; i < cancelButton.length; i++) {
+    cancelButton[i].addEventListener("click", function(){
+      unblurBg();
+      document.getElementById("addBookOverlay").style.display = "none"
+      document.getElementById("deleteAllBooksOverlay").style.display = "none"
+      document.getElementById("deleteSingleBookOverlay").style.display = "none"
+  })};
+}
+
+
+
+function refreshGrid(){
+
+  }

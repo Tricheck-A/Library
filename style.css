@@ -308,7 +308,7 @@ span.bookOptionIcon svg {
 
 /* ADD BOOK OVERLAY STYLING */
 
-#addBookOverlay, #deleteAllBooksOverlay {
+#addBookOverlay, #deleteAllBooksOverlay, #deleteSingleBookOverlay {
     position: absolute;
     z-index: 1;
     width: 100%;
@@ -333,7 +333,7 @@ span.bookOptionIcon svg {
     transition: all .25s ease-in-out;
 }
 
-#deleteAllBooksContainer {
+#deleteAllBooksContainer, #deleteSingleBookContainer {
     display: flex;
     flex-direction: column;
     gap: 25px;
@@ -483,7 +483,7 @@ button[type="submit"] {
         width: 55vw;
     }
 
-    #deleteAllBooksContainer {
+    #deleteAllBooksContainer, #deleteSingleBookContainer {
         width: 55vw;
         min-height: 25vh;
     }
@@ -516,12 +516,12 @@ button[type="submit"] {
         min-height: 55vh;
     }
 
-    #deleteAllBooksContainer {
+    #deleteAllBooksContainer, #deleteSingleBookContainer {
         width: 80vw;
         min-height: 25vh;
     }
     
-    #addBookOverlay, #deleteAllBooksOverlay {
+    #addBookOverlay, #deleteAllBooksOverlay, #deleteSingleBookOverlay {
         position: fixed;
         z-index: 2;
         width: 100%;
@@ -561,7 +561,7 @@ button[type="submit"] {
         display: none;
     }
 
-    #deleteAllBooksContainer {
+    #deleteAllBooksContainer, #deleteSingleBookContainer {
         width: 90vw;
         min-height: 25vh;
     }
