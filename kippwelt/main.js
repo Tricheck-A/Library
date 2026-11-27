@@ -328,13 +328,13 @@ const RUN_BLOCK_VS = /* glsl */`
       sc *= mix(0.15, 1.0, a);
       off += aOut * uBeat * 0.08 * (0.5 + 0.5 * sin(aTrack * 0.6 - uTime * 5.0));
     }
-    // behind the ball the track crumbles into the void
-    float behind = uDist - aTrack - 2.5;
+    // behind the ball the track sinks inward and shrinks away; gone before it reaches the camera
+    float behind = uDist - aTrack - 1.5;
     if (behind > 0.0) {
-      off += aOut * behind * 0.35 - vec3(0.0, behind * behind * 0.1, 0.0);
+      off -= aOut * behind * 0.45;
       p.xz = rot2(behind * 1.6 * (aSeed - 0.5)) * p.xz;
       p.yz = rot2(behind * 0.9 * aSeed) * p.yz;
-      sc *= max(0.0, 1.0 - behind * 0.07);
+      sc *= max(0.0, 1.0 - behind * 0.3);
     }
     float rv = ease3(uReveal * 1.7 - aSeed * 0.7);
     vec3 wp = aPos + p * sc * mix(0.1, 1.0, rv) + off + vec3(0.0, (1.0 - rv) * (4.0 + aSeed * 9.0), 0.0);
@@ -2080,7 +2080,7 @@ const decoU = { uTime: U.time, uTravel: { value: 0 }, uPx: U.px, uLen: { value: 
 (() => {
   // tumbling patterned cubes drifting around the beam
   const N = 70, d = [];
-  for (let i = 0; i < N; i++) d.push(Math.random() * Math.PI * 2, 5.5 + Math.random() * 10, Math.random() * 100, Math.random());
+  for (let i = 0; i < N; i++) d.push(Math.random() * Math.PI * 2, 8 + Math.random() * 9, Math.random() * 100, Math.random());
   const g = new THREE.InstancedBufferGeometry().copy(blockGeo);
   g.setAttribute('aD', new THREE.InstancedBufferAttribute(new Float32Array(d), 4));
   g.instanceCount = N;
@@ -2096,7 +2096,8 @@ const decoU = { uTime: U.time, uTravel: { value: 0 }, uPx: U.px, uLen: { value: 
       p.yz = rot2(uTime * 0.7 * aD.w + aD.w * 9.0) * p.yz;
       vUv = uv; vN = normal;
       vec4 mv = modelViewMatrix * vec4(c + p, 1.0);
-      vA = exp(-(-mv.z) * 0.025) * smoothstep(86.0, 64.0, along) * smoothstep(-14.0, -6.0, along);
+      vA = exp(-(-mv.z) * 0.025) * smoothstep(86.0, 64.0, along) * smoothstep(0.0, 8.0, along);
+      if (vA < 0.01) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
       gl_Position = projectionMatrix * mv;
     }`, /* glsl */`
     varying vec2 vUv; varying vec3 vN; varying float vA;
