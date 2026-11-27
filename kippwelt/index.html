@@ -96,11 +96,13 @@ button { font: inherit; color: inherit; }
 /* ---------- overlays ---------- */
 .overlay {
   position: fixed; inset: 0; z-index: 10; overflow-y: auto;
-  display: flex; flex-direction: column; justify-content: flex-end;
+  display: flex; flex-direction: column;
   padding: calc(var(--safe-t) + 24px) var(--gut-r) calc(var(--safe-b) + 24px) var(--gut-l);
 }
 #title { background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,.55) 34%, rgba(0,0,0,.95) 70%); }
-#pause, #result { background: var(--veil); justify-content: center; }
+#pause, #result, #runOver { background: var(--veil); }
+.overlay > .panel { margin-top: auto; }
+#pause > .panel, #result > .panel, #runOver > .panel { margin-bottom: auto; }
 .panel { width: 100%; max-width: 480px; margin: 0 auto; display: grid; gap: 20px; }
 .panel h1, .panel h2 { margin: 0; font-family: var(--display); font-weight: 400; line-height: .95; }
 .panel h1 { font-size: clamp(44px, 14vw, 76px); }
@@ -132,6 +134,26 @@ button { font: inherit; color: inherit; }
 .medals i { width: 18px; height: 18px; border: 1px solid var(--paper); transform: rotate(45deg); }
 .medals i.on { background: var(--paper); box-shadow: 0 0 14px rgba(255,255,255,.6); }
 .medal-legend { font-size: 10px; color: var(--dim); letter-spacing: .06em; }
+.mode-run {
+  display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 4px 12px; text-align: left; cursor: pointer;
+  background: var(--paper); color: var(--ink); border: 0; border-radius: 14px; padding: 16px 18px;
+}
+.mode-run small { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; }
+.mode-run b { font: 400 34px/1 var(--display); grid-column: 1; }
+.mode-run span { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 11px; text-align: right; }
+.section-label { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); }
+details.help { font-size: 11px; border-top: 1px solid var(--line); padding-top: 10px; }
+details.help summary { cursor: pointer; letter-spacing: .14em; text-transform: uppercase; font-size: 10px; color: var(--dim); }
+details.help h3 { margin: 12px 0 6px; font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.run-stats { display: flex; align-items: center; gap: 16px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.phase-tag { border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+.meter { display: grid; gap: 4px; justify-items: end; margin-left: auto; font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.meter i { display: block; width: 64px; height: 2px; background: var(--line); }
+.meter i b { display: block; height: 100%; background: var(--paper); transform-origin: left; }
+#runDist { margin: 2px 0 0; font: 400 clamp(26px, 8vw, 42px)/1 var(--display); font-variant-numeric: tabular-nums; }
+#turnArrow { position: fixed; left: 50%; top: 52%; width: 120px; height: 120px; margin: -60px 0 0 -60px; z-index: 6; pointer-events: none; }
+#turnArrow svg { width: 100%; height: 100%; overflow: visible; }
+#turnArrow path { fill: none; stroke: var(--paper); stroke-width: 3; filter: drop-shadow(0 0 8px #000); }
 @media (prefers-reduced-motion: reduce) { .timer.low { animation: none; } }
 </style>
 <!--BUILD:HEADEND-->
@@ -161,23 +183,55 @@ button { font: inherit; color: inherit; }
 </div>
 <div id="toast" aria-live="polite"></div>
 
+<header class="hud hud-top" id="runHud" hidden>
+  <div class="row">
+    <div>
+      <div class="lvl-id"><b id="runBiome">wabe</b> · lauf</div>
+      <div id="runDist">0 m</div>
+    </div>
+    <button class="btn" id="runPauseBtn" type="button" aria-label="Pause"><i style="display:block;width:10px;height:12px;border-left:2px solid var(--paper);border-right:2px solid var(--paper)"></i></button>
+  </div>
+  <div class="run-stats">
+    <div class="shards" id="runShards">0</div>
+    <div class="phase-tag" id="runPhase">phase a</div>
+    <div class="meter" id="sogMeter" hidden>sog<i><b id="sogBar"></b></i></div>
+    <div class="meter">fokus<i><b id="focusBar"></b></i></div>
+  </div>
+</header>
+<div id="turnArrow" hidden><svg viewBox="0 0 120 120"><path d="M40 30 L70 60 L40 90 M62 30 L92 60 L62 90"/></svg></div>
+
 <section class="overlay" id="title" aria-label="Start">
   <div class="panel">
     <h1>kippwelt</h1>
-    <p>Roll die Kugel über schwebende Blöcke. An jeder Kante kippt die Schwerkraft mit. Sammle alle Schlüssel, dann öffnet sich der Ausgang. Gespielt wird mit einem Daumen.</p>
-    <ul class="controls">
-      <li><b>Wisch hoch</b> <span>rollen</span></li>
-      <li><b>Halten + hoch</b> <span>durchrollen</span></li>
-      <li><b>Links / rechts</b> <span>abbiegen</span></li>
-      <li><b>Tippen</b> <span>springen</span></li>
-      <li><b>Wisch runter</b> <span>Phase / umdrehen</span></li>
-      <li><b>Halten</b> <span>Übersicht</span></li>
-    </ul>
+    <p>Eine Kugel auf schwebenden Blöcken. An jeder Kante kippt die Schwerkraft mit. Im Lauf rast sie endlos über einen Balken, in den Rätseln suchst du Schlüssel und Ausgang. Gespielt wird mit einem Daumen.</p>
+    <button class="mode-run" id="runBtn" type="button"><small>Endlos</small><b>lauf</b><span id="runBest">Rekord 0 m</span></button>
+    <div class="section-label">Rätsel</div>
     <div class="worlds" id="worldsList"></div>
     <div class="actions">
-      <button class="btn primary" id="playBtn" type="button">Spielen</button>
+      <button class="btn primary" id="playBtn" type="button">Rätsel spielen</button>
       <button class="btn" id="soundBtn" type="button" aria-pressed="true">Ton an</button>
     </div>
+    <details class="help">
+      <summary>Steuerung</summary>
+      <h3>Lauf</h3>
+      <ul class="controls">
+        <li><b>Links / rechts</b> <span>Spur wechseln, außen über die Kante kippen</span></li>
+        <li><b>Tippen / hoch</b> <span>springen, im Ring nochmal</span></li>
+        <li><b>Wisch runter</b> <span>Phase wechseln</span></li>
+        <li><b>Halten</b> <span>Zeitlupe</span></li>
+        <li><b>Pfeil erscheint</b> <span>in Pfeilrichtung wischen = abbiegen</span></li>
+        <li><b>Ring um den Balken</b> <span>kippt dich auf die Gegenseite</span></li>
+      </ul>
+      <h3>Rätsel</h3>
+      <ul class="controls">
+        <li><b>Wisch hoch</b> <span>rollen</span></li>
+        <li><b>Halten + hoch</b> <span>durchrollen</span></li>
+        <li><b>Links / rechts</b> <span>abbiegen</span></li>
+        <li><b>Tippen</b> <span>springen</span></li>
+        <li><b>Wisch runter</b> <span>Phase / umdrehen</span></li>
+        <li><b>Halten</b> <span>Übersicht</span></li>
+      </ul>
+    </details>
   </div>
 </section>
 
@@ -208,6 +262,22 @@ button { font: inherit; color: inherit; }
       <button class="btn primary" id="nextBtn" type="button">Weiter</button>
       <button class="btn" id="againBtn" type="button">Nochmal</button>
       <button class="btn" id="menuBtn2" type="button">Levels</button>
+    </div>
+  </div>
+</section>
+
+<section class="overlay" id="runOver" aria-label="Lauf vorbei" hidden>
+  <div class="panel">
+    <div class="lvl-id"><b id="overReason">abgestürzt</b></div>
+    <h2>gekippt</h2>
+    <div class="res-stats">
+      <div><small>Weite</small><b id="overDist">0 m</b></div>
+      <div><small>Splitter</small><b id="overShards">0</b></div>
+      <div><small>Rekord</small><b id="overBest">0 m</b></div>
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="runAgainBtn" type="button">Nochmal</button>
+      <button class="btn" id="runMenuBtn" type="button">Menü</button>
     </div>
   </div>
 </section>
