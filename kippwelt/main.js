@@ -288,7 +288,7 @@ backgrounds.slice(0, 2).forEach((b) => bgRoot.add(b)); // the shaft is placed in
 /* ------------------------------------------------------------------ */
 /* Level objects                                                       */
 /* ------------------------------------------------------------------ */
-const levelU = { uTime: U.time, uReveal: { value: 0 }, uPhaseMix: { value: 0 }, uFog: { value: 0.035 }, uBeat: bgU.uBeat };
+const levelU = { uTime: U.time, uReveal: { value: 0 }, uPhaseMix: { value: 0 }, uFog: { value: 0.035 }, uBeat: bgU.uBeat, uStyle: { value: 0 }, uDist: { value: 0 }, uRise: { value: 14 } };
 const BLOCK_VS = /* glsl */`
   attribute vec3 aPos; attribute float aPhase; attribute float aSeed;
   uniform float uTime, uReveal, uPhaseMix, uFog;
@@ -304,10 +304,61 @@ const BLOCK_VS = /* glsl */`
     vFog = exp(-(-mv.z) * uFog) * rv;
     gl_Position = projectionMatrix * mv;
   }`;
+const RUN_BLOCK_VS = /* glsl */`
+  attribute vec3 aPos; attribute float aPhase; attribute float aSeed; attribute float aTrack; attribute vec3 aOut;
+  uniform float uTime, uReveal, uPhaseMix, uFog, uDist, uRise, uBeat;
+  varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed;
+  void main(){
+    float solid = (aPhase < 0.5 || aPhase > 2.5) ? 1.0 : (aPhase < 1.5 ? 1.0 - uPhaseMix : uPhaseMix);
+    float ahead = aTrack - uDist;
+    vec3 p = position * mix(0.84, 1.0, ease3(solid));
+    vec3 off = vec3(0.0);
+    float sc = 1.0;
+    if (aPhase > 0.5) {
+      // obstacles rise out of the beam shortly before you reach them, with overshoot
+      float r = 1.0 - smoothstep(uRise, uRise + 12.0, ahead);
+      float rr = r + sin(r * 3.14159) * 0.25;
+      off -= aOut * (1.0 - rr) * 1.05;
+      sc *= mix(0.35, 1.0, r);
+    } else {
+      // the beam assembles from flying blocks far ahead and breathes with the beat
+      float a = 1.0 - smoothstep(32.0, 52.0, ahead);
+      off += aOut * (1.0 - a) * (4.0 + aSeed * 6.0);
+      p.xy = rot2((1.0 - a) * 4.0 * (aSeed - 0.5)) * p.xy;
+      sc *= mix(0.15, 1.0, a);
+      off += aOut * uBeat * 0.08 * (0.5 + 0.5 * sin(aTrack * 0.6 - uTime * 5.0));
+    }
+    // behind the ball the track crumbles into the void
+    float behind = uDist - aTrack - 2.5;
+    if (behind > 0.0) {
+      off += aOut * behind * 0.35 - vec3(0.0, behind * behind * 0.1, 0.0);
+      p.xz = rot2(behind * 1.6 * (aSeed - 0.5)) * p.xz;
+      p.yz = rot2(behind * 0.9 * aSeed) * p.yz;
+      sc *= max(0.0, 1.0 - behind * 0.07);
+    }
+    float rv = ease3(uReveal * 1.7 - aSeed * 0.7);
+    vec3 wp = aPos + p * sc * mix(0.1, 1.0, rv) + off + vec3(0.0, (1.0 - rv) * (4.0 + aSeed * 9.0), 0.0);
+    vUv = uv; vN = normal; vSolid = solid; vPhase = aPhase; vSeed = aSeed;
+    vec4 mv = modelViewMatrix * vec4(wp, 1.0);
+    vFog = exp(-(-mv.z) * uFog) * rv;
+    gl_Position = projectionMatrix * mv;
+  }`;
 const BLOCK_FS = /* glsl */`
-  uniform float uTime, uBeat;
+  uniform float uTime, uBeat, uStyle;
   varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed;
   float ring(float d, float r){ return 1.0 - smoothstep(0.009, 0.009 + fwidth(d) * 1.3, abs(d - r)); }
+  // biome surface styles: 0 concentric squares (wabe), 1 dot grid (senke), 2 fine grid (schacht)
+  float stylePat(float st, float d, vec2 uv){
+    if (st < 0.5) return ring(d, 0.3) + ring(d, 0.16);
+    if (st < 1.5) { vec2 g = fract(uv * 5.0) - 0.5; return 1.0 - smoothstep(0.09, 0.09 + fwidth(g.x) * 2.0, length(g)); }
+    vec2 g = abs(fract(uv * 4.0) - 0.5);
+    float w = fwidth(uv.x) * 4.0;
+    return 1.0 - smoothstep(0.03, 0.03 + w * 1.5, 0.5 - max(g.x, g.y));
+  }
+  float styled(float d, vec2 uv){
+    float a = floor(uStyle), f = fract(uStyle);
+    return mix(stylePat(a, d, uv), stylePat(a + 1.0, d, uv), f);
+  }
   void main(){
     float ex = min(vUv.x, 1.0 - vUv.x), ey = min(vUv.y, 1.0 - vUv.y);
     float e = min(ex, ey);
@@ -316,10 +367,10 @@ const BLOCK_FS = /* glsl */`
     float d = max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
     float c;
     if (vPhase > 2.5) {
-      float pat = ring(d, 0.3) + ring(d, 0.18) + ring(d, 0.06);
+      float pat = max(ring(d, 0.06), styled(d, vUv));
       c = max(edge, pat * 0.7) * (abs(vN.y) > 0.5 ? 1.0 : 0.85) + 0.14 + edge * uBeat * 0.6;
     } else if (vPhase < 0.5) {
-      float pat = abs(vN.y) > 0.5 ? ring(d, 0.3) + ring(d, 0.16) : (abs(vN.x) > 0.5 ? ring(d, 0.34) + ring(d, 0.22) + ring(d, 0.1) : ring(d, 0.2));
+      float pat = uStyle > 0.01 ? styled(d, vUv) : (abs(vN.y) > 0.5 ? ring(d, 0.3) + ring(d, 0.16) : (abs(vN.x) > 0.5 ? ring(d, 0.34) + ring(d, 0.22) + ring(d, 0.1) : ring(d, 0.2)));
       c = max(edge, pat * 0.42) * (abs(vN.y) > 0.5 ? 1.0 : abs(vN.x) > 0.5 ? 0.86 : 0.72) + 0.03 + edge * uBeat * 0.35;
     } else {
       float pat;
@@ -452,22 +503,49 @@ function buildLevel(L) {
 /* ------------------------------------------------------------------ */
 /* Ball, trail, particles                                              */
 /* ------------------------------------------------------------------ */
-const ball = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 32), shader({ uTime: U.time }, /* glsl */`
-  varying vec2 vUv; varying vec3 vNv;
-  void main(){ vUv = uv; vNv = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`, /* glsl */`
-  varying vec2 vUv; varying vec3 vNv;
+// Ball: a lit pearl with one fine seam that shows the roll, plus an orbiting dot ring.
+const ball = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 48), shader({ uTime: U.time }, /* glsl */`
+  varying vec3 vP; varying vec3 vNv;
+  void main(){ vP = normalize(position); vNv = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`, /* glsl */`
+  varying vec3 vP; varying vec3 vNv;
   void main(){
-    vec2 g = vec2(fract(vUv.x * 12.0), fract(vUv.y * 8.0));
-    vec2 w = fwidth(vUv * vec2(12.0, 8.0));
-    float lx = 1.0 - smoothstep(0.0, w.x * 1.6, min(g.x, 1.0 - g.x) - 0.04);
-    float ly = 1.0 - smoothstep(0.0, w.y * 1.6, min(g.y, 1.0 - g.y) - 0.04);
-    float shade = 0.72 + 0.28 * max(vNv.z, 0.0);
-    float rim = pow(1.0 - max(vNv.z, 0.0), 3.0);
-    float c = mix(shade, 0.04, max(lx, ly)) + rim * 0.4;
+    vec3 n = normalize(vNv);
+    float lat = asin(clamp(vP.y, -1.0, 1.0));
+    float lon = atan(vP.z, vP.x);
+    float seam = abs(lat - 0.55 * sin(2.0 * lon));
+    float line = 1.0 - smoothstep(0.012, 0.012 + fwidth(seam) * 1.5, seam);
+    vec3 L = normalize(vec3(-0.35, 0.65, 0.7));
+    float diff = max(dot(n, L), 0.0);
+    float spec = pow(max(dot(reflect(vec3(0.0, 0.0, -1.0), n), L), 0.0), 36.0);
+    float rim = pow(1.0 - max(n.z, 0.0), 2.6);
+    float c = 0.22 + diff * 0.72 + spec * 0.6;
+    c = mix(c, 0.08, line * 0.9);
+    c += rim * 0.45;
     gl_FragColor = vec4(vec3(c), 1.0);
   }`));
+const orbitDots = (() => {
+  const n = 42, pos = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; pos.push(Math.cos(a) * R * 1.75, 0, Math.sin(a) * R * 1.75); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aI', new THREE.Float32BufferAttribute([...Array(n).keys()].map((i) => i / n), 1));
+  const pts = new THREE.Points(g, shader({ uPx: U.px, uTime: U.time }, /* glsl */`
+    attribute float aI; uniform float uPx, uTime; varying float vA;
+    void main(){
+      vA = 0.35 + 0.65 * pow(fract(aI - uTime * 0.6), 6.0);
+      gl_PointSize = (1.4 + vA * 1.6) * uPx;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`, /* glsl */`
+    varying float vA;
+    void main(){ float d = length(gl_PointCoord - 0.5); gl_FragColor = vec4(vec3(1.0), smoothstep(0.5, 0.1, d) * vA); }`, ADD));
+  pts.rotation.z = 0.32;
+  return pts;
+})();
 const ballRig = new THREE.Group(); // oriented to the gravity frame; carries squash & stretch
 ballRig.add(ball);
+const orbitPivot = new THREE.Group();
+orbitPivot.add(orbitDots);
+ballRig.add(orbitPivot);
 scene.add(ballRig);
 const ballQ = new THREE.Quaternion(); // accumulated rolling spin in world space
 const squash = { x: 1, y: 1, z: 1 };
@@ -832,6 +910,8 @@ function loadLevel(i, { keepDeaths = false } = {}) {
   backgrounds.forEach((b, k) => { b.visible = k === def.world; });
   lv.group.visible = true;
   runGroup.visible = false;
+  deco.visible = false;
+  levelU.uStyle.value = 0;
   levelU.uFog.value = 0.035;
   const c = G.L.bounds().center;
   bgRoot.position.set(c[0], c[1], c[2]);
@@ -1209,9 +1289,11 @@ function occ(p) {
   return t === 0 || t === 3 || t === RUN.phase;
 }
 const RUNREF = new Map();
-function setCell(seg, p, type) {
+const RUNMETA = new Map(); // cell → [track distance, outward x, y, z] for the shader
+function setCell(seg, p, type, track = 0, out = Y) {
   const k = kv(p);
   RUNMAP.set(k, type);
+  RUNMETA.set(k, [track, out.x, out.y, out.z]);
   RUNREF.set(k, (RUNREF.get(k) || 0) + 1);
   seg.cells.push(k);
 }
@@ -1258,7 +1340,7 @@ const padGeo = padLines();
 padGeo.userData.keep = true;
 
 /* ---------- track generation ---------- */
-function addObstacle(seg, k, fi, lane, h) { for (let t = 1; t <= h; t++) setCell(seg, faceCell(seg, k, fi, lane, t), 3); }
+function addObstacle(seg, k, fi, lane, h) { const n = faceN(seg.d, fi); for (let t = 1; t <= h; t++) setCell(seg, faceCell(seg, k, fi, lane, t), 3, seg.start + k, n); }
 function addSpike(seg, k, fi, lane) {
   const n = faceN(seg.d, fi);
   const o = new THREE.Group();
@@ -1321,6 +1403,35 @@ function addSog(seg, k, fi, lane) {
   seg.items.push({ type: 'sog', pos: g.position.clone(), mesh: g, alive: true });
 }
 
+const boxGeo = new THREE.BoxGeometry(0.92, 0.92, 0.92);
+const boxEdges = new THREE.EdgesGeometry(boxGeo);
+const laserGeo = new THREE.BoxGeometry(3.3, 0.05, 0.05);
+const laserGlow = new THREE.BoxGeometry(3.3, 0.22, 0.22);
+[boxGeo, boxEdges, laserGeo, laserGlow].forEach((g) => { g.userData.keep = true; });
+const glowMat = new THREE.MeshBasicMaterial({ color: 0xffffff, ...ADD, opacity: 0.18 });
+// Sweeper: a block sliding back and forth across the three lanes.
+function addSweeper(seg, k, fi) {
+  const g = new THREE.Group();
+  const inner = new THREE.Mesh(boxGeo, white);
+  inner.scale.setScalar(0.45);
+  g.add(new THREE.Mesh(boxGeo, black), new THREE.LineSegments(boxEdges, lineMat), inner);
+  g.quaternion.copy(frameQuat(seg.d, faceN(seg.d, fi)));
+  seg.group.add(g);
+  seg.sweepers.push({ k, fi, ph: Math.random() * 6.28, w: 1.6 + Math.random() * 1.2, mesh: g, alive: true, x: 0 });
+}
+function sweeperX(sw) { return Math.sin(U.time.value * sw.w + sw.ph); }
+function sweeperAhead(seg, k) { return seg.sweepers.some((sw) => sw.alive && sw.k === k && sw.fi === RUN.fi); }
+// Laser: low (jump over) or high (stay on the ground).
+function addLaser(seg, k, fi, high) {
+  const n = faceN(seg.d, fi);
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(laserGeo, white), new THREE.Mesh(laserGlow, glowMat));
+  for (const x of [-1.65, 1.65]) { const post = new THREE.Mesh(boxGeo, black); post.scale.set(0.12, high ? 1.9 : 0.9, 0.12); post.position.set(x, -(high ? 1.5 : 0.35) / 2 - 0.1, 0); g.add(post); }
+  g.quaternion.copy(frameQuat(seg.d, n));
+  g.position.copy(faceCell(seg, k, fi, 0)).addScaledVector(n, 0.5 + R + (high ? 1.5 : 0.35));
+  seg.group.add(g);
+  seg.lasers.push({ k, fi, high, mesh: g });
+}
 const pickLane = () => [-1, 0, 1][(Math.random() * 3) | 0];
 function weighted(list) {
   const total = list.reduce((s, [w]) => s + Math.max(0, w), 0);
@@ -1341,6 +1452,9 @@ function facePattern(seg, k, fi, D) {
     [1.4 + D, () => { const len = D > 0.45 ? 3 : 2; addGap(seg, k, fi, len); shardArc(seg, k - 1, fi, pickLane(), len + 1); return len; }],
     [D * 1.4, () => { [-1, 0, 1].forEach((l) => { addObstacle(seg, k, fi, l, 1); addObstacle(seg, k + 3, fi, l, 2); }); shardLine(seg, k + 3, fi, pickLane(), 1, 2); return 4; }],
     [0.6 + D * 0.8, () => { addPad(seg, k, fi); [-1, 0, 1].forEach((l) => { addObstacle(seg, k + 3, fi, l, 2); addObstacle(seg, k + 4, fi, l, 2); }); shardArc(seg, k, fi, 0, 6); return 8; }],
+    [0.4 + D * 1.4, () => { addSweeper(seg, k, fi); return 1; }],
+    [0.8 + D, () => { addLaser(seg, k, fi, false); shardArc(seg, k - 2, fi, pickLane(), 4); return 0; }],
+    [D > 0.2 ? 0.9 : 0, () => { addLaser(seg, k, fi, true); shardLine(seg, k - 1, fi, pickLane(), 3); return 0; }],
     [D > 0.3 ? 1 : 0, () => { addGap(seg, k, fi, 5); [-1, 0, 1].forEach((l) => addOrb(seg, k + 1, fi, l, 1.45)); return 5; }],
   ]);
   return fn();
@@ -1360,20 +1474,20 @@ function makeSeg(prev) {
   if (prev && prev.turn === turn && prev.prevTurn === turn) turn = turn === 'left' ? 'right' : 'left';
   const seg = {
     id: RUN.nextId++, o, d, r: new THREE.Vector3().crossVectors(d, Y), L, turn, prevTurn: prev ? prev.turn : null,
-    cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], group: new THREE.Group(), start: RUN.genDist,
+    cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], group: new THREE.Group(), start: RUN.genDist,
   };
   for (let k = prev ? 1 : -8; k <= L; k++) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-    if (i || j) setCell(seg, o.clone().addScaledVector(d, k).addScaledVector(Y, i).addScaledVector(seg.r, j), 0);
+    if (i || j) setCell(seg, o.clone().addScaledVector(d, k).addScaledVector(Y, i).addScaledVector(seg.r, j), 0, RUN.genDist + k, Y.clone().multiplyScalar(i).addScaledVector(seg.r, j).normalize());
   }
   let k = prev ? 9 : 44; // first segment: long run-in while the hints show
   while (k < L - 12) {
     const dd = Math.min(1, (seg.start + k) / 1800);
     let extra = 0;
     const g = Math.random();
-    if (g < 0.09 + dd * 0.05) { addPortal(seg, k); extra = 3; }
+    if (g < 0.045 + dd * 0.03) { addPortal(seg, k); extra = 3; }
     else if (g < 0.18 + dd * 0.1) {
       const p = Math.random() < 0.5 ? 1 : 2;
-      for (let fi = 0; fi < 4; fi++) for (let l = -1; l <= 1; l++) for (let h = 1; h <= 2; h++) setCell(seg, faceCell(seg, k, fi, l, h), p);
+      for (let fi = 0; fi < 4; fi++) for (let l = -1; l <= 1; l++) for (let h = 1; h <= 2; h++) setCell(seg, faceCell(seg, k, fi, l, h), p, seg.start + k, faceN(seg.d, fi));
       extra = 2;
     } else {
       for (let fi = 0; fi < 4; fi++) extra = Math.max(extra, facePattern(seg, k, fi, dd));
@@ -1397,9 +1511,11 @@ function makeSeg(prev) {
 let runMesh = null;
 function rebuildBlocks() {
   const n = RUNMAP.size;
-  const pos = new Float32Array(n * 3), ph = new Float32Array(n), sd = new Float32Array(n);
+  const pos = new Float32Array(n * 3), ph = new Float32Array(n), sd = new Float32Array(n), tr = new Float32Array(n), out = new Float32Array(n * 3);
   let i = 0;
   for (const [k, t] of RUNMAP) {
+    const m = RUNMETA.get(k) || [0, 0, 1, 0];
+    tr[i] = m[0]; out[i * 3] = m[1]; out[i * 3 + 1] = m[2]; out[i * 3 + 2] = m[3];
     const c = k.split(',');
     pos[i * 3] = +c[0]; pos[i * 3 + 1] = +c[1]; pos[i * 3 + 2] = +c[2];
     ph[i] = t; sd[i] = (Math.sin(+c[0] * 12.9 + +c[1] * 78.2 + +c[2] * 37.7) * 43758.5) % 1;
@@ -1409,14 +1525,16 @@ function rebuildBlocks() {
   g.setAttribute('aPos', new THREE.InstancedBufferAttribute(pos, 3));
   g.setAttribute('aPhase', new THREE.InstancedBufferAttribute(ph, 1));
   g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(sd.map(Math.abs), 1));
+  g.setAttribute('aTrack', new THREE.InstancedBufferAttribute(tr, 1));
+  g.setAttribute('aOut', new THREE.InstancedBufferAttribute(out, 3));
   g.instanceCount = n;
   if (runMesh) { runMesh.geometry.dispose(); runMesh.geometry = g; }
-  else { runMesh = new THREE.Mesh(g, shader(levelU, BLOCK_VS, BLOCK_FS)); runMesh.frustumCulled = false; runGroup.add(runMesh); }
+  else { runMesh = new THREE.Mesh(g, shader(levelU, RUN_BLOCK_VS, BLOCK_FS)); runMesh.frustumCulled = false; runGroup.add(runMesh); }
 }
 function dropSeg(seg) {
   seg.cells.forEach((k) => {
     const n = (RUNREF.get(k) || 1) - 1;
-    if (n <= 0) { RUNREF.delete(k); RUNMAP.delete(k); } else RUNREF.set(k, n);
+    if (n <= 0) { RUNREF.delete(k); RUNMAP.delete(k); RUNMETA.delete(k); } else RUNREF.set(k, n);
   });
   seg.group.traverse((o) => { if (o.geometry && !o.geometry.userData.keep && o.geometry !== blockGeo) o.geometry.dispose(); });
   runGroup.remove(seg.group);
@@ -1465,12 +1583,14 @@ function clearRun() {
   RUN.segs = [];
   RUNMAP.clear();
   RUNREF.clear();
+  RUNMETA.clear();
 }
 function setBiome(b, announce) {
   RUN.biome = b;
   const bio = BIOMES[b % BIOMES.length];
   backgrounds.forEach((m, k) => { m.visible = k === bio.bg; });
   music.root = bio.root;
+  gsap.to(levelU.uStyle, { value: b % BIOMES.length, duration: announce ? 2.5 : 0, ease: 'power2.inOut' });
   $('runBiome').textContent = bio.name;
   if (announce) {
     wipe(1);
@@ -1607,7 +1727,7 @@ function runJump() {
     sfx.key(); vibrate([6, 20, 6]);
     stretchJump(1.3);
     kick(0.03, 0, 0.12);
-    bulletMoment(0.25, 0.3);
+    bulletMoment(0.1, 0.55);
     burst(orb.mesh.position, 40, 4, 0.8, 3);
     gsap.to(orb.mesh.scale, { x: 2.4, y: 2.4, z: 2.4, duration: 0.3, ease: 'expo.out' });
     gsap.to(orb.mesh.scale, { x: 0, y: 0, z: 0, duration: 0.3, delay: 0.2 });
@@ -1618,7 +1738,7 @@ function runJump() {
 // Air dash: straight forward at 2.4x speed, gravity off, smashes through blocks.
 function runDash() {
   if (RUN.dash < 1 || RUN.dashT > 0) return false;
-  RUN.dash = 0; RUN.dashT = 0.32; RUN.vy = 0;
+  RUN.dash = 0; RUN.dashT = 0.4; RUN.vy = 0;
   sfx.dash(); vibrate(16);
   stretchDash();
   kick(0.05, 1.6, 0.06);
@@ -1646,9 +1766,26 @@ function runPhase() {
   const seg = RUN.segs[RUN.si];
   if (occ(faceCell(seg, Math.round(RUN.s), RUN.fi, RUN.lane, Math.floor(RUN.y + 0.3) + 1))) runDie('zerdrückt');
 }
+function wallAhead() {
+  const seg = RUN.segs[RUN.si];
+  const reach = Math.ceil(RUN.speed * 0.4 + 1.5);
+  for (let dk = 1; dk <= reach; dk++) {
+    const h = stackAt(seg, Math.round(RUN.s) + dk);
+    if (h === -Infinity) return false;
+    if (h >= 2 || sweeperAhead(seg, Math.round(RUN.s) + dk)) return true;
+  }
+  return false;
+}
 function runInput(dir) {
   if (G.mode !== 'run') return;
-  if (dir === 'tap') { if (!runJump()) RUN.jumpBuf = 0.14; return; }
+  if (dir === 'tap' || dir === 'up') {
+    // a wall too tall to jump: dash through it straight from the ground
+    if (RUN.grounded && wallAhead()) {
+      if (runDash()) return;
+      toast('dash lädt');
+    }
+    if (dir === 'tap') { if (!runJump()) RUN.jumpBuf = 0.14; return; }
+  }
   const req = turnRequired();
   if (req && dir === req) {
     RUN.turnQueued = true;
@@ -1751,6 +1888,18 @@ function runStep(dt) {
   }
   if (RUN.y < -2.4) return runDie(RUN.s > seg.L + 0.5 ? 'kurve verpasst' : 'abgestürzt');
 
+  for (const sw of seg.sweepers) {
+    if (!sw.alive || sw.fi !== RUN.fi || Math.abs(RUN.s - sw.k) > 0.6 || RUN.y > 0.85) continue;
+    if (Math.abs(sw.x - RUN.lane) > 0.72) continue;
+    if (!dashing) return runDie('weggefegt');
+    sw.alive = false; sw.mesh.visible = false;
+    burst(sw.mesh.position, 50, 6, 0.8, 3); sfx.die(); kick(0.04, 0.6, 0.1);
+  }
+  if (!dashing) for (const lz of seg.lasers) {
+    if (lz.fi !== RUN.fi || Math.abs(RUN.s - lz.k) > 0.35) continue;
+    if (!lz.high && RUN.y < 0.55) return runDie('laser');
+    if (lz.high && RUN.y > 0.7 && RUN.y < 2.1) return runDie('laser');
+  }
   if (!dashing) for (const sp of seg.spikes) if (sp.fi === RUN.fi && sp.lane === RUN.lane && Math.abs(RUN.s - sp.k) < 0.42 && RUN.y < 0.45) return runDie('stacheln');
   if (RUN.grounded && RUN.y < 0.05) for (const p of seg.pads) if (p.fi === RUN.fi && Math.abs(RUN.s - p.k) < 0.5) {
     RUN.vy = PAD_V; RUN.grounded = false;
@@ -1760,14 +1909,22 @@ function runStep(dt) {
     burst(vis.pos, 30, 4, 0.7, 3);
     gsap.fromTo(fx, { fovKick: 10 }, { fovKick: 0, duration: 0.8, ease: 'expo.out' });
   }
+  if (!RUN.portalHint) for (const p of seg.portals) if (!p.passed && p.k - RUN.s < 18 && p.k > RUN.s) {
+    RUN.portalHint = true;
+    const el = $('hint');
+    $('hudBottom').hidden = false;
+    el.textContent = 'Kippring voraus: Er dreht dich auf die Gegenseite des Balkens';
+    animate(el, { opacity: [0, 1], translateY: [8, 0], duration: 400, ease: 'outExpo' });
+    hintTimers.push(setTimeout(() => { $('hudBottom').hidden = true; }, 3200));
+  }
   for (const p of seg.portals) if (!p.passed && RUN.s >= p.k) {
     p.passed = true;
     RUN.fi += 2; RUN.uT += 6;
     RUN.vy = Math.max(RUN.vy, 3);
     sfx.wrap(); sfx.open(); vibrate([10, 30, 10]);
     bgEvent(vis.pos, 2.4);
-    bulletMoment(0.45, 0.18);
-    kick(0.05, 0.6, 0.18);
+    kick(0.04, 0.5, 0.1);
+    toast('gekippt');
     burst(p.mesh.position, 80, 5, 1, 3);
     gsap.fromTo(fx, { fovKick: 16 }, { fovKick: 0, duration: 0.9, ease: 'expo.out' });
     gsap.to(p.mesh.scale, { x: 1.6, y: 1.6, z: 1.6, duration: 0.5, ease: 'expo.out' });
@@ -1838,6 +1995,71 @@ function runCamera(dt) {
   camera.quaternion.copy(camState.quat);
 }
 
+const deco = new THREE.Group();
+deco.visible = false;
+scene.add(deco);
+const decoU = { uTime: U.time, uTravel: { value: 0 }, uPx: U.px, uLen: { value: 1 }, uLineA: { value: 0 }, uBeat: bgU.uBeat };
+(() => {
+  // tumbling patterned cubes drifting around the beam
+  const N = 70, d = [];
+  for (let i = 0; i < N; i++) d.push(Math.random() * Math.PI * 2, 5.5 + Math.random() * 10, Math.random() * 100, Math.random());
+  const g = new THREE.InstancedBufferGeometry().copy(blockGeo);
+  g.setAttribute('aD', new THREE.InstancedBufferAttribute(new Float32Array(d), 4));
+  g.instanceCount = N;
+  const m = shader(decoU, /* glsl */`
+    attribute vec4 aD; uniform float uTime, uTravel, uBeat;
+    varying vec2 vUv; varying vec3 vN; varying float vA;
+    void main(){
+      float along = mod(aD.z - uTravel * 0.8, 100.0) - 14.0;
+      float ang = aD.x + uTime * 0.06 * (aD.w - 0.5);
+      vec3 c = vec3(cos(ang) * aD.y, sin(ang) * aD.y, -along);
+      vec3 p = position * (0.35 + aD.w * 1.3) * (1.0 + uBeat * 0.08);
+      p.xy = rot2(uTime * (0.3 + aD.w)) * p.xy;
+      p.yz = rot2(uTime * 0.7 * aD.w + aD.w * 9.0) * p.yz;
+      vUv = uv; vN = normal;
+      vec4 mv = modelViewMatrix * vec4(c + p, 1.0);
+      vA = exp(-(-mv.z) * 0.025) * smoothstep(86.0, 64.0, along) * smoothstep(-14.0, -6.0, along);
+      gl_Position = projectionMatrix * mv;
+    }`, /* glsl */`
+    varying vec2 vUv; varying vec3 vN; varying float vA;
+    float ring(float d, float r){ return 1.0 - smoothstep(0.01, 0.01 + fwidth(d) * 1.3, abs(d - r)); }
+    void main(){
+      float ex = min(vUv.x, 1.0 - vUv.x), ey = min(vUv.y, 1.0 - vUv.y);
+      float e = min(ex, ey);
+      float along = ex < ey ? vUv.y : vUv.x;
+      float edge = (1.0 - smoothstep(0.035, 0.035 + fwidth(e) * 1.4, e)) * step(0.42, fract(along * 7.0));
+      float d = max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
+      float pat = abs(vN.y) > 0.5 ? ring(d, 0.28) + ring(d, 0.14) : ring(d, 0.22);
+      gl_FragColor = vec4(vec3(max(edge, pat * 0.7) * vA), 1.0);
+    }`);
+  const mesh = new THREE.Mesh(g, m);
+  mesh.frustumCulled = false;
+  deco.add(mesh);
+
+  // cartoon speed lines streaming past
+  const L = 90, pos = [], a = [];
+  for (let i = 0; i < L; i++) {
+    const ang = Math.random() * Math.PI * 2, r = 2.4 + Math.random() * 6, z = Math.random() * 60;
+    for (const end of [0, 1]) { pos.push(0, 0, 0); a.push(ang, r, z, end); }
+  }
+  const lg = new THREE.BufferGeometry();
+  lg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  lg.setAttribute('aL', new THREE.Float32BufferAttribute(a, 4));
+  const lm = shader(decoU, /* glsl */`
+    attribute vec4 aL; uniform float uTravel, uLen, uLineA; varying float vA;
+    void main(){
+      float along = mod(aL.z - uTravel * 1.6, 60.0) - 6.0;
+      vec3 p = vec3(cos(aL.x) * aL.y, sin(aL.x) * aL.y, -along + aL.w * uLen);
+      vA = uLineA * (1.0 - aL.w * 0.8) * smoothstep(54.0, 40.0, along) * smoothstep(-6.0, -2.0, along);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    }`, /* glsl */`
+    varying float vA;
+    void main(){ gl_FragColor = vec4(vec3(1.0), vA); }`, ADD);
+  const lines = new THREE.LineSegments(lg, lm);
+  lines.frustumCulled = false;
+  deco.add(lines);
+})();
+
 let hudTick = 0;
 function runFrame(dt) {
   if (G.mode === 'run') runStep(dt);
@@ -1854,6 +2076,15 @@ function runFrame(dt) {
   shaft.position.copy(seg.o).addScaledVector(seg.d, RUN.s);
   shaft.quaternion.copy(frameQuat(seg.d, Y));
   shaft.userData.u.uTravel.value = RUN.dist;
+  deco.visible = true;
+  deco.position.copy(shaft.position);
+  deco.quaternion.copy(shaft.quaternion);
+  decoU.uTravel.value = RUN.dist;
+  const spK = clamp((RUN.speed - 8) / 11, 0, 1), dashK = RUN.dashT > 0 ? 1 : 0;
+  decoU.uLen.value = 0.8 + spK * 2.5 + dashK * 5;
+  decoU.uLineA.value = 0.12 + spK * 0.35 + dashK * 0.5;
+  levelU.uDist.value = seg.start + RUN.s; // track position of the ball (cells carry the same measure)
+  levelU.uRise.value = Math.max(12, RUN.speed * 1.1);
 
   // turn arrow
   const req = G.mode === 'run' ? turnRequired() : null;
@@ -1871,6 +2102,13 @@ function runFrame(dt) {
   // items spin
   const t = U.time.value;
   RUN.segs.forEach((sg) => {
+    sg.sweepers.forEach((sw) => {
+      sw.x = sweeperX(sw);
+      const n = faceN(sg.d, sw.fi);
+      sw.mesh.position.copy(faceCell(sg, sw.k, sw.fi, 0)).addScaledVector(faceN(sg.d, sw.fi + 1), sw.x).addScaledVector(n, 1);
+      sw.mesh.children[2].rotation.set(t * 3, t * 2, 0);
+    });
+    sg.lasers.forEach((lz) => { lz.mesh.children[1].material.opacity = 0.12 + 0.12 * Math.abs(Math.sin(t * 20)); });
     sg.items.forEach((it) => { it.mesh.rotation.set(t * 1.3, t * 2, 0); });
     sg.portals.forEach((p) => { p.mesh.rotateZ(dt * 0.8); });
   });
@@ -2019,6 +2257,7 @@ function loop() {
   ballRig.quaternion.copy(vis.frame);
   ballRig.scale.set(sx / vol, sy / vol, sz / vol).multiplyScalar(Math.max(0.0001, vis.scale) * (G.mode === 'title' ? 0.0001 : 1));
   ball.quaternion.copy(vis.frame).invert().multiply(ballQ);
+  orbitPivot.rotation.y += dt * 2.2;
   halo.position.copy(vis.pos);
   halo.material.opacity = vis.scale * (G.mode === 'title' ? 0 : 1);
   bgU.uWell.value.lerp(_a.copy(vis.pos).sub(bgRoot.position), 1 - Math.exp(-dt * 0.8));
