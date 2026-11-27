@@ -1513,7 +1513,7 @@ function perim(d, u, outP, outN) {
     const th = (c * 3 - 1) * Math.PI / 2;
     outN.copy(n).multiplyScalar(Math.cos(th)).addScaledVector(a, Math.sin(th));
     outP.copy(n).multiplyScalar(1.5).addScaledVector(a, 1.5).addScaledVector(outN, R);
-  } else { outP.copy(a).multiplyScalar(H).addScaledVector(n, 1.5 - 1.5 * (c * 3 - 2)); outN.copy(a); }
+  } else { outP.copy(a).multiplyScalar(H).addScaledVector(n, 1.5 - 0.5 * (c * 3 - 2)); outN.copy(a); } // edge (1.5) → lane (1.0)
 }
 
 /* ---------- item meshes ---------- */
@@ -2320,6 +2320,7 @@ const _pp = new THREE.Vector3(), _pn = new THREE.Vector3(), _pa = new THREE.Vect
 function runVisual(dt) {
   const seg = RUN.segs[RUN.si];
   RUN.uV += (RUN.uT - RUN.uV) * (dt ? 1 - Math.exp(-dt * 16) : 1);
+  if (Math.abs(RUN.uT - RUN.uV) < 0.002) RUN.uV = RUN.uT; // settle exactly on the lane
   perim(seg.d, RUN.uV, _pp, _pn);
   vis.pos.copy(seg.o).addScaledVector(seg.d, RUN.s).add(_pp).addScaledVector(_pn, RUN.y).add(RUN.offset);
   if (dt) RUN.offset.multiplyScalar(Math.exp(-dt * 9));
@@ -2698,4 +2699,4 @@ showTitle();
 loop();
 
 // debug / test hook
-window.kippwelt = { forceZone: (z) => { RUN.zone = null; const keep = Math.random; let i = 0; Math.random = () => (i++ === 0 ? ZONES.indexOf(z) / ZONES.length + 0.01 : keep()); startZone(); Math.random = keep; }, endZone, music, buffers, audio, G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };
+window.kippwelt = { vis, forceZone: (z) => { RUN.zone = null; const keep = Math.random; let i = 0; Math.random = () => (i++ === 0 ? ZONES.indexOf(z) / ZONES.length + 0.01 : keep()); startZone(); Math.random = keep; }, endZone, music, buffers, audio, G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };
