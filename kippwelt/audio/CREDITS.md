@@ -4,9 +4,9 @@ All audio in this folder is released under **CC0 1.0 Universal** (public domain 
 
 | File | Work | Artist | Source |
 | --- | --- | --- | --- |
-| music-wabe.mp3 | Action Techno | Komiku | Free Music Archive, via github.com/SoundSafari/CC0-1.0-Music |
-| music-senke.mp3 | High Technologic Beat Explosion | Loyalty Freak Music | Free Music Archive, via github.com/SoundSafari/CC0-1.0-Music |
-| music-schacht.mp3 | You can't beat the machine | Komiku | Free Music Archive, via github.com/SoundSafari/CC0-1.0-Music |
+| music-wabe.mp3 | Fight, run, breath deeply | Komiku | Free Music Archive, via github.com/SoundSafari/CC0-1.0-Music |
+| music-senke.mp3 | Can't Stop My Feet | Loyalty Freak Music | Free Music Archive, via github.com/SoundSafari/CC0-1.0-Music |
+| music-schacht.mp3 | Game On (from 0:53, after the intro) | Soft and Furious | Free Music Archive, via github.com/SoundSafari/CC0-1.0-Music |
 | music-menu.mp3 | Run against the universe | Komiku | Free Music Archive, via github.com/SoundSafari/CC0-1.0-Music |
 | sfx-*.mp3 | Digital Audio pack | Kenney (kenney.nl) | via github.com/Boyquotes/kenney-digital-audio-for-godot |
 | jingle-*.mp3 | Homebrew fanfares (NES set) | Beatscribe | github.com/Beatscribe/homebrew_vgm |

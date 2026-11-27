@@ -60,7 +60,7 @@ Phasenblöcke (gepunktet / schraffiert) sind nur in ihrer Phase fest. Stacheln s
 
 ## Musik und Sounds
 
-Wie bei Geometry Dash, das Songs von Newgrounds-Künstlern lizenziert, stammt die Musik von unabhängigen Künstlern, hier ausschließlich unter CC0: Komiku und Loyalty Freak Music (Free Music Archive), Effekte aus Kenneys „Digital Audio“, Jingles von Beatscribe. Jede Welt hat ihren Song, jeder Lauf startet ihn von vorn, beim Tod bricht er ab, beim Biomwechsel blendet er über, in der Bullet Time sinkt er in Tonhöhe und klingt dumpf. Details und Quellen: `audio/CREDITS.md`.
+Wie bei Geometry Dash, das Songs von Newgrounds-Künstlern lizenziert, stammt die Musik von unabhängigen Künstlern, hier ausschließlich unter CC0: Komiku, Loyalty Freak Music und Soft and Furious (Free Music Archive), Effekte aus Kenneys „Digital Audio“, Jingles von Beatscribe. Jede Welt hat ihren Song, jeder Lauf startet ihn von vorn, beim Tod bricht er ab, beim Biomwechsel blendet er über, in der Bullet Time sinkt er in Tonhöhe und klingt dumpf. Details und Quellen: `audio/CREDITS.md`.
 
 ## Dateien
 

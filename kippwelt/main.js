@@ -667,6 +667,7 @@ function audioInit() {
     audio.musicFilter.connect(audio.master);
     // small files first, music on demand
     new Set(Object.values(SAMPLES).map(([f]) => f)).forEach(loadBuffer);
+    loadBuffer(TRACKS.wabe).then(() => [TRACKS.senke, TRACKS.schacht].forEach(loadBuffer));
     if (music.want) musicPlay(music.want);
   } catch (_) { audio.ctx = null; }
 }
@@ -778,7 +779,7 @@ function musicPlay(name, { restart = false, fade = 0.8 } = {}) {
     Object.assign(music, { name, src, gain: g, startAt: audio.ctx.currentTime });
   };
   if (buffers[file]) go(buffers[file]);
-  else loadBuffer(file).then(go);
+  else { if (music.name !== name) musicStop(0.15); loadBuffer(file).then(go); }
 }
 function musicStop(fade = 0) {
   if (!music.src || !audio.ctx) { music.name = null; return; }
