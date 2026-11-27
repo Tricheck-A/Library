@@ -595,7 +595,18 @@ function motionFall(s0, column, reason) {
 function drainQueue() {
   if (G.mode !== 'play') return;
   if (G.queue) { const a = G.queue; G.queue = null; doAction(a); return; }
-  if (thumb && thumb.mode === 'roll') doAction('fwd');
+  continueRoll();
+}
+
+// Keep rolling only once the thumb has rested on the screen after the swipe,
+// so a normal swipe (finger still lifting) moves exactly one field.
+const ROLL_HOLD_MS = 420;
+function continueRoll() {
+  if (!thumb || thumb.mode !== 'roll' || G.busy || G.mode !== 'play') return;
+  const wait = thumb.rollSince + ROLL_HOLD_MS - performance.now();
+  if (wait <= 0) { doAction('fwd'); return; }
+  clearTimeout(thumb.rollTimer);
+  thumb.rollTimer = setTimeout(continueRoll, wait + 10);
 }
 
 /* ---------- actions ---------- */
@@ -959,16 +970,20 @@ canvas.addEventListener('pointermove', (e) => {
   clearTimeout(thumb.hold);
   thumb.ring.prog.pause();
   const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy < 0 ? 'up' : 'down');
-  thumb.consumed = true;
   thumb.rx = e.clientX; thumb.ry = e.clientY;
+  // One swipe = one action: further movement in the same direction is absorbed.
+  if (dir === thumb.lastDir) return;
+  thumb.lastDir = dir;
+  thumb.consumed = true;
   arrowAt(e.clientX, e.clientY, dir);
-  if (dir === 'up') { thumb.mode = 'roll'; doAction('fwd'); }
+  if (dir === 'up') { thumb.mode = 'roll'; thumb.rollSince = performance.now(); doAction('fwd'); }
   else if (dir === 'down') { thumb.mode = null; doAction('phase'); }
   else doAction(dir);
 });
 function thumbUp(e) {
   if (!thumb || e.pointerId !== thumb.id) return;
   clearTimeout(thumb.hold);
+  clearTimeout(thumb.rollTimer);
   thumb.ring.prog.pause();
   const r = thumb.ring.el;
   animate(r, { scale: 1.6, opacity: 0, duration: 420, ease: 'outExpo', onComplete: () => r.remove() });
