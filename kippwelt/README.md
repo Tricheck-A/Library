@@ -33,7 +33,7 @@ Hindernisse: Blöcke und Türme, Stacheln, Lücken, Schieber (gleiten über die 
 
 ## Wandlungs-Zonen
 
-Ab 80 m und danach alle 90 bis 170 m verwandelt sich die Welt für 170 bis 240 m: **Spirale** (Strecke, Schacht und Hintergrund drehen sich korkenzieherartig um die Bahn), **Trichter** (die Strecke stürzt vor dir in eine Senke), **Welle**, **Schlange** und **Negativ** (alles invertiert). Zonen kombinieren sich (zu Beginn selten, später häufiger). Die Verformung wirkt nur vor der Kugel und glättet sich beim Näherkommen, rund um die Kugel bleibt alles flach und spielbar. Technisch ist das eine gemeinsame Vertex-Funktion `warpRun`, die alle Shader und auch die eingebauten Materialien nutzen.
+Ab 80 m und danach alle 90 bis 170 m verwandelt sich die Welt für 170 bis 240 m: **Spirale** (Strecke, Schacht und Hintergrund drehen sich korkenzieherartig um die Bahn), **Trichter** (die Strecke stürzt vor dir in eine Senke), **Welle**, **Schlange** und **Negativ** (alles invertiert), **Wurmloch** (Feldlinien laufen zu einer Kehle um die Strecke zusammen) und **Strudel** (ein Sandfeld aus Partikeln strömt in ein schwarzes Loch, die Strecke taucht darauf zu). Im Trichter öffnet sich die Punktgitter-Senke vor dir. Die Kamera folgt der verbogenen Strecke. Jeder Biomwechsel ist ein Feldlinien-Portal, durch das du hindurchrollst. Zonen kombinieren sich (zu Beginn selten, später häufiger). Die Verformung wirkt nur vor der Kugel und glättet sich beim Näherkommen, rund um die Kugel bleibt alles flach und spielbar. Technisch ist das eine gemeinsame Vertex-Funktion `warpRun`, die alle Shader und auch die eingebauten Materialien nutzen.
 
 ## Power-ups und Einführung
 

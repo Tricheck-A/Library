@@ -1106,6 +1106,8 @@ function loadLevel(i, { keepDeaths = false } = {}) {
   lv.group.visible = true;
   runGroup.visible = false;
   deco.visible = false;
+  wormhole.visible = false; strudel.visible = false;
+  wormhole.userData.u.uA.value = 0; strudel.userData.u.uA.value = 0;
   resetWarp();
   levelU.uStyle.value = 0;
   levelU.uFog.value = 0.035;
@@ -1781,12 +1783,12 @@ function makeSeg(prev) {
     id: RUN.nextId++, o, d, r: new THREE.Vector3().crossVectors(d, Y), L, turn, prevTurn: prev ? prev.turn : null,
     marks: [], cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], crushers: [], crumbles: [], flips: [], rings: [], group: new THREE.Group(), start: RUN.genDist,
   };
-  for (let k = prev ? 0 : -8; k <= L; k++) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+  for (let k = prev ? -1 : -8; k <= L; k++) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { // -1: completes the corner cube
     if (i || j) setCell(seg, o.clone().addScaledVector(d, k).addScaledVector(Y, i).addScaledVector(seg.r, j), i && j ? 0 : 5, RUN.genDist + k, Y.clone().multiplyScalar(i).addScaledVector(seg.r, j).normalize());
   }
   let k = prev ? 9 : 44; // first segment: long run-in while the hints show
   let lastGlobal = false;
-  while (k < L - 12) {
+  while (k < L - 22) { // the stretch before a corner stays clear: the turn is enough to handle there
     const dd = Math.min(1, (seg.start + k) / 1800);
     let extra = 0;
     const dist = seg.start + k;
@@ -1810,6 +1812,14 @@ function makeSeg(prev) {
     }
     // early on the gaps between obstacles are wider; they tighten towards 1800 m
     k += Math.round(Math.max(6.5, speedAt(dist) * 0.5 + 3) + (1 - dd) * 3.5 + extra);
+  }
+  const bnd = Math.ceil((seg.start + 1) / BIOME_LEN) * BIOME_LEN;
+  if (bnd > seg.start + 4 && bnd < seg.start + L - 4) {
+    const gate = makeThroat();
+    gate.position.copy(o).addScaledVector(d, bnd - seg.start);
+    gate.quaternion.setFromUnitVectors(Z_AXIS, d);
+    gate.userData.u.uA.value = 1;
+    seg.group.add(gate);
   }
   if (seg.shards.length) {
     const im = new THREE.InstancedMesh(shardGeo, white, seg.shards.length);
@@ -1894,6 +1904,7 @@ function startRun() {
   });
   gsap.killTweensOf(RUN);
   resetWarp();
+  [wormhole, strudel].forEach((o) => { gsap.killTweensOf(o.userData.u.uA); o.userData.u.uA.value = 0; o.visible = false; });
   RUN.offset.set(0, 0, 0);
   manageSegs();
   lv.group.visible = false;
@@ -1983,7 +1994,7 @@ function runDie(reason) {
 function turnRequired() {
   const seg = RUN.segs[RUN.si];
   const win = 9 + RUN.speed * 0.45;
-  if (seg.L - RUN.s > win || RUN.s > seg.L + 0.6 || RUN.turnQueued) return null;
+  if (seg.L - RUN.s > win || RUN.s > seg.L + 1.6 || RUN.turnQueued) return null; // late swipes still count
   const nd = new THREE.Vector3().crossVectors(seg.d, Y);
   if (seg.turn === 'left') nd.negate();
   const n = faceN(seg.d, RUN.fi), a = faceN(seg.d, RUN.fi + 1);
@@ -2080,7 +2091,7 @@ function wallAhead() {
   }
   return false;
 }
-const ZONES = ['spirale', 'trichter', 'welle', 'schlange', 'negativ'];
+const ZONES = ['spirale', 'trichter', 'welle', 'schlange', 'negativ', 'wurmloch', 'strudel'];
 function tweenWarp(t, d) {
   ['uTwist', 'uCurve', 'uWave', 'uSnake'].forEach((k) => gsap.to(WARP[k], { value: t[k] || 0, duration: d, ease: 'sine.inOut', overwrite: true }));
 }
@@ -2098,12 +2109,22 @@ function startZone() {
   const D = Math.min(1, RUN.dist / 1800);
   const t = {};
   if (type === 'spirale') t.uTwist = (Math.random() < 0.5 ? -1 : 1) * (0.075 + 0.035 * D);
-  if (type === 'trichter') t.uCurve = 0.01 + 0.005 * D;
+  if (type === 'trichter') t.uCurve = 0.007 + 0.004 * D;
   if (type === 'welle') t.uWave = 1.7;
   if (type === 'schlange') t.uSnake = 1.6;
   if (type === 'negativ') { t.uTwist = 0.03; t.uWave = 0.6; gsap.to(post.mat.uniforms.uInvert, { value: 1, duration: 0.5, ease: 'power2.inOut' }); }
+  if (type === 'wurmloch') {
+    // a throat of field lines ahead; the world twists towards it
+    t.uTwist = 0.035 * (Math.random() < 0.5 ? -1 : 1);
+    RUN.zone.gateAt = RUN.segs[RUN.si].start + RUN.s + 70;
+    gsap.fromTo(wormhole.userData.u.uA, { value: 0 }, { value: 1, duration: 2.5 });
+  }
+  if (type === 'strudel') {
+    t.uCurve = 0.004; t.uSnake = 0.5;
+    gsap.fromTo(strudel.userData.u.uA, { value: 0 }, { value: 1, duration: 3 });
+  }
   // zones combine from the start, more often later on
-  if (type !== 'negativ' && Math.random() < 0.35 + D * 0.4) {
+  if (!['negativ', 'wurmloch', 'strudel'].includes(type) && Math.random() < 0.35 + D * 0.4) {
     const extra = ['uTwist', 'uWave', 'uSnake'][(Math.random() * 3) | 0];
     if (!t[extra]) t[extra] = extra === 'uTwist' ? 0.04 * (Math.random() < 0.5 ? -1 : 1) : 0.9;
   }
@@ -2115,20 +2136,15 @@ function startZone() {
 }
 function endZone() {
   tweenWarp({}, 3);
+  gsap.to(wormhole.userData.u.uA, { value: 0, duration: 2 });
+  gsap.to(strudel.userData.u.uA, { value: 0, duration: 2.5 });
   gsap.to(post.mat.uniforms.uInvert, { value: 0, duration: 0.6, ease: 'power2.inOut' });
   RUN.zone = null;
   RUN.nextZone = RUN.dist + 90 + Math.random() * 80;
 }
 function runInput(dir) {
   if (G.mode !== 'run') return;
-  if (dir === 'tap' || dir === 'up') {
-    // a wall too tall to jump: dash through it straight from the ground
-    if (RUN.grounded && wallAhead()) {
-      if (runDash()) return;
-      toast('dash lädt');
-    }
-    if (dir === 'tap') { if (!runJump()) RUN.jumpBuf = 0.14; return; }
-  }
+  // the corner always wins: a swipe in the arrow's direction takes the turn
   const req = turnRequired();
   if (req && dir === req) {
     RUN.turnQueued = true;
@@ -2137,6 +2153,14 @@ function runInput(dir) {
     arrowAt(window.innerWidth / 2, window.innerHeight * 0.52, dir);
     burst(vis.pos, 24, 3, 0.6, 2);
     return;
+  }
+  if (dir === 'tap' || dir === 'up') {
+    // a wall too tall to jump: dash through it straight from the ground
+    if (RUN.grounded && wallAhead()) {
+      if (runDash()) return;
+      toast('dash lädt');
+    }
+    if (dir === 'tap') { if (!runJump()) RUN.jumpBuf = 0.14; return; }
   }
   if (dir === 'left' || dir === 'right') laneShift(dir === 'right' ? 1 : -1);
   else if (dir === 'up') { if (!runJump() && !runDash()) RUN.jumpBuf = 0.14; }
@@ -2160,9 +2184,14 @@ function stackAt(seg, k) {
 function transfer() {
   const seg = RUN.segs[RUN.si];
   const before = vis.pos.clone();
+  // inner corner (the new beam rises in front of this side): the ball climbs onto the new beam's
+  // inner face, which only starts behind the old beam, so it re-enters a little further along
+  const concave = RUN.segs[RUN.si + 1].d.dot(faceN(seg.d, RUN.fi)) > 0.5;
   RUN.s -= seg.L;
   RUN.si++;
   RUN.turnQueued = false;
+  if (concave) RUN.s = Math.max(RUN.s, 1.5 + R + 0.2);
+  if (RUN.y < 0) { RUN.y = 0; RUN.vy = Math.max(RUN.vy, 0); } // a late swipe puts the ball back onto the new track
   runVisual(0);
   RUN.offset.add(before.sub(vis.pos));
   sfx.wrap();
@@ -2229,11 +2258,12 @@ function runStep(dt) {
 
   // front collision: anything taller than the ball's height ahead
   const kA = Math.round(RUN.s + 0.32);
-  const hA = stackAt(seg, kA);
+  // in the corner, the next beam must not count as a wall once the turn is queued
+  const hA = RUN.turnQueued && kA >= seg.L - 1 ? Math.min(stackAt(seg, kA), 0) : stackAt(seg, kA);
   // small ledges (landing a bit short, sinking at the end of a dash) are stepped up, not crashed into
   if (hA > RUN.y + 0.32 && hA - RUN.y <= 0.6) { RUN.y = hA; RUN.vy = Math.max(RUN.vy, 0); RUN.grounded = true; }
   else if (hA > RUN.y + 0.32) {
-    if (!dashing) return runDie('aufgeprallt');
+    if (!dashing) return runDie(kA >= seg.L - 1 ? 'kurve verpasst' : 'aufgeprallt');
     // dash smashes the column in front
     let broke = 0;
     for (let h = 1; h <= 4; h++) {
@@ -2370,7 +2400,7 @@ function collectAndFinish(dt, seg) {
   if (RUN.slow) { RUN.focus -= dt / 2.5; if (RUN.focus <= 0) { RUN.focus = 0; setSlowmo(false); } }
   else RUN.focus = Math.min(1, RUN.focus + dt / 14);
 
-  const b = Math.floor(RUN.dist / BIOME_LEN);
+  const b = Math.floor((seg.start + RUN.s) / BIOME_LEN);
   if (b !== RUN.biome) setBiome(b, true);
   if (!RUN.zone && RUN.dist > RUN.nextZone) startZone();
   else if (RUN.zone && RUN.dist > RUN.zone.end) endZone();
@@ -2390,6 +2420,27 @@ function runVisual(dt) {
 }
 
 const _rc = new THREE.Vector3(), _rl = new THREE.Vector3(), _ru = new THREE.Vector3(), _rq = new THREE.Quaternion();
+// JS twin of the GLSL warpRun, so the camera can look along the bent track
+const _wr = new THREE.Vector3(), _wa = new THREE.Vector3(), _wc = new THREE.Vector3();
+function warpPoint(w) {
+  const O = WARP.uAxisO.value, D = WARP.uDir.value, Uu = WARP.uUp.value;
+  _wr.copy(w).sub(O);
+  const a = _wr.dot(D), t = Math.max(a, 0);
+  const x = clamp((t - 3) / 15, 0, 1), f = x * x * (3 - 2 * x);
+  if (Math.abs(WARP.uTwist.value) > 0.0001) {
+    const ang = WARP.uTwist.value * t * f;
+    _wa.copy(D).multiplyScalar(a);
+    const rad = _wr.sub(_wa);
+    _wc.crossVectors(D, rad);
+    _wr.copy(_wa).addScaledVector(rad, Math.cos(ang)).addScaledVector(_wc, Math.sin(ang));
+  }
+  const tt = U.time.value;
+  _wr.addScaledVector(Uu, -WARP.uCurve.value * t * t * f);
+  _wr.addScaledVector(Uu, WARP.uWave.value * 1.8 * Math.sin(t * 0.32 - tt * 2.2) * f);
+  _wc.crossVectors(D, Uu);
+  _wr.addScaledVector(_wc, WARP.uSnake.value * 3.0 * Math.sin(t * 0.16 - tt * 1.3) * f);
+  return w.copy(O).add(_wr);
+}
 function runCamera(dt) {
   const seg = RUN.segs[RUN.si];
   _ru.set(0, 1, 0).applyQuaternion(vis.frame);
@@ -2398,6 +2449,10 @@ function runCamera(dt) {
   _rl.addScaledVector(_ru, -_rl.dot(_ru));
   _rc.copy(vis.pos).addScaledVector(_ru, 2.7 - RUN.y * 0.45).addScaledVector(seg.d, -5.8).addScaledVector(_rl, -0.4);
   _b.copy(vis.pos).addScaledVector(seg.d, 8).addScaledVector(_rl, -0.35).addScaledVector(_ru, -RUN.y * 0.3);
+  // look partly along the bent track ahead: dives, spirals and snakes pull the view with them
+  _wc.copy(vis.pos).addScaledVector(seg.d, 20).addScaledVector(_ru, -RUN.y * 0.3);
+  const bentAhead = warpPoint(_wc.clone());
+  _b.lerp(bentAhead.addScaledVector(seg.d, -12), 0.55);
   _m.lookAt(_rc, _b, _ru);
   _rq.setFromRotationMatrix(_m);
   if (!camState.ready) { camState.pos.copy(_rc); camState.quat.copy(_rq); camState.ready = true; }
@@ -2408,6 +2463,84 @@ function runCamera(dt) {
   camera.quaternion.copy(camState.quat);
 }
 
+// Field-line throat (from "fluss"): lines from far away converge into a throat around the
+// track and flare out again. Used as biome portals and for the wormhole zone.
+function makeThroat() {
+  const NU = 140, NV = 60, pos = [], uvA = [], idx = [];
+  for (let i = 0; i < NU; i++) {
+    const sd = Math.random();
+    for (let j = 0; j < NV; j++) {
+      pos.push(0, 0, 0); uvA.push((i / NU) * Math.PI * 2, -1 + (2 * j) / (NV - 1), sd);
+      if (j < NV - 1) idx.push(i * NV + j, i * NV + j + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aUV', new THREE.Float32BufferAttribute(uvA, 3));
+  g.setIndex(idx);
+  const u = { ...WARP, uTime: U.time, uA: { value: 0 }, uTw: { value: 1.4 } };
+  const m = shader(u, /* glsl */`
+    attribute vec3 aUV; uniform float uTime, uA, uTw; varying float vA;
+    void main(){
+      float v = aUV.y * 1.9;
+      float ang = aUV.x + uTw * tanh(v * 1.3) + uTime * 0.15;
+      float r = 4.2 * cosh(v);
+      vec4 w = modelMatrix * vec4(cos(ang) * r, sin(ang) * r, v * 14.0, 1.0);
+      w.xyz = warpRun(w.xyz);
+      vec4 mv = viewMatrix * w;
+      float flow = pow(fract(aUV.y * 4.0 + uTime * 0.9 + aUV.z), 12.0);
+      vA = (0.22 + flow * 1.3 + exp(-v * v * 2.0) * 0.45) * smoothstep(1.0, 0.72, abs(aUV.y)) * uA * exp(-(-mv.z) * 0.01);
+      gl_Position = projectionMatrix * mv;
+    }`, /* glsl */`
+    varying float vA;
+    void main(){ gl_FragColor = vec4(vec3(1.0), clamp(vA, 0.0, 1.0)); }`, ADD);
+  const lines = new THREE.LineSegments(g, m);
+  lines.frustumCulled = false;
+  lines.userData.u = u;
+  return lines;
+}
+// place an object on the track at a given track distance (axis point + direction)
+function trackPoint(dist) {
+  for (const sg of RUN.segs) if (dist >= sg.start && dist <= sg.start + sg.L) return { p: sg.o.clone().addScaledVector(sg.d, dist - sg.start), d: sg.d.clone() };
+  return null;
+}
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const wormhole = makeThroat();
+wormhole.visible = false;
+scene.add(wormhole);
+// Sand vortex (third reference): a disc of particles streaming in a spiral into a black hole.
+const strudel = (() => {
+  const N = 26000, a = [];
+  for (let i = 0; i < N; i++) a.push(Math.sqrt(Math.random()), Math.random() * Math.PI * 2, Math.random());
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3));
+  g.setAttribute('aP', new THREE.Float32BufferAttribute(a, 3));
+  const u = { ...WARP, uTime: U.time, uPx: U.px, uA: { value: 0 } };
+  const m = shader(u, /* glsl */`
+    attribute vec3 aP; uniform float uTime, uPx, uA; varying float vA;
+    void main(){
+      float R = 78.0;
+      float r = mod(aP.x * R - uTime * (4.0 + 70.0 / (aP.x * R + 6.0)), R) + 4.0;
+      float ang = aP.y + 34.0 / (r + 2.0) + uTime * 0.18;
+      float depth = -30.0 / (1.0 + pow(r / 6.5, 2.2));
+      vec4 w = modelMatrix * vec4(cos(ang) * r, depth + (aP.z - 0.5) * 0.5, sin(ang) * r, 1.0);
+      w.xyz = warpRun(w.xyz);
+      vec4 mv = viewMatrix * w;
+      float dz = max(-mv.z, 0.5);
+      gl_PointSize = clamp((1.0 + aP.z * 1.8) * uPx * (70.0 / dz), 1.2 * uPx, 7.0 * uPx);
+      float tw = 0.35 + 0.65 * step(0.45, fract(aP.z * 13.0 + uTime * (0.4 + aP.z)));
+      vA = uA * tw * smoothstep(82.0, 58.0, r) * smoothstep(4.0, 9.0, r) * exp(-dz * 0.008);
+      gl_Position = projectionMatrix * mv;
+    }`, /* glsl */`
+    varying float vA;
+    void main(){ float d = length(gl_PointCoord - 0.5); gl_FragColor = vec4(vec3(1.0), smoothstep(0.5, 0.1, d) * vA); }`, ADD);
+  const pts = new THREE.Points(g, m);
+  pts.frustumCulled = false;
+  pts.visible = false;
+  pts.userData.u = u;
+  return pts;
+})();
+scene.add(strudel);
 const deco = new THREE.Group();
 deco.visible = false;
 scene.add(deco);
@@ -2510,16 +2643,38 @@ function runFrame(dt) {
   runCamera(dt);
 
   // backgrounds travel with the ball, snapped to their lattice so they stay put
-  const bio = BIOMES[RUN.biome % BIOMES.length];
-  if (bio.bg === 0) bgRoot.position.set(Math.round(vis.pos.x / 3.12) * 3.12, 0, Math.round(vis.pos.z / 1.8013) * 1.8013);
-  else bgRoot.position.set(Math.round(vis.pos.x / 2) * 2, 0, Math.round(vis.pos.z / 2) * 2);
+  const bio0 = BIOMES[RUN.biome % BIOMES.length];
+  const zt = RUN.zone && RUN.zone.type;
+  const bio = zt === 'trichter' ? { ...bio0, bg: 1 } : bio0; // the funnel zone shows the point-grid well
+  backgrounds[0].visible = bio.bg === 0; backgrounds[1].visible = bio.bg === 1;
+  RUN.bgLift = (RUN.bgLift || 0) + ((zt === 'trichter' ? 8 : 0) - (RUN.bgLift || 0)) * (1 - Math.exp(-dt * 1.2)); // raise the well during the funnel zone
+  if (bio.bg === 0) bgRoot.position.set(Math.round(vis.pos.x / 3.12) * 3.12, RUN.bgLift, Math.round(vis.pos.z / 1.8013) * 1.8013);
+  else bgRoot.position.set(Math.round(vis.pos.x / 2) * 2, RUN.bgLift, Math.round(vis.pos.z / 2) * 2);
   const shaft = backgrounds[2];
   const seg = RUN.segs[RUN.si];
   if (WARP.uDir.value.lengthSq() < 0.5) WARP.uDir.value.copy(seg.d);
   WARP.uDir.value.lerp(seg.d, 1 - Math.exp(-dt * 5)).normalize();
   WARP.uAxisO.value.copy(seg.o).addScaledVector(seg.d, RUN.s);
   WARP.uUp.value.lerp(_ru.set(0, 1, 0).applyQuaternion(vis.frame), 1 - Math.exp(-dt * 4)).normalize();
-  const wantShaft = bio.bg === 2 || (RUN.zone && RUN.zone.type === 'spirale') ? 1 : 0;
+  // wormhole: keep the throat ahead until the ball reaches it, then let it pass
+  if (zt === 'wurmloch' || wormhole.userData.u.uA.value > 0.01) {
+    const here = seg.start + RUN.s;
+    if (RUN.zone && RUN.zone.gateAt && RUN.zone.gateAt - here < 25 && RUN.zone.gateAt - here > -40) {
+      // fixed in place: the ball rolls through it
+    } else if (RUN.zone && RUN.zone.gateAt) {
+      if (RUN.zone.gateAt - here <= -40) RUN.zone.gateAt = here + 70; // next throat
+      const tp = trackPoint(RUN.zone.gateAt);
+      if (tp) { wormhole.position.copy(tp.p); wormhole.quaternion.setFromUnitVectors(Z_AXIS, tp.d); }
+    }
+    wormhole.visible = wormhole.userData.u.uA.value > 0.01;
+  } else wormhole.visible = false;
+  // sand vortex ahead and below; the track dives towards it
+  strudel.visible = strudel.userData.u.uA.value > 0.01;
+  if (strudel.visible) {
+    strudel.position.copy(WARP.uAxisO.value).addScaledVector(seg.d, 42).addScaledVector(WARP.uUp.value, -5);
+    strudel.quaternion.setFromUnitVectors(UP, WARP.uUp.value);
+  }
+  const wantShaft = bio.bg === 2 || zt === 'spirale' ? 1 : 0;
   const su = shaft.userData.u.uShow;
   su.value += (wantShaft - su.value) * (1 - Math.exp(-dt * 1.5));
   shaft.visible = su.value > 0.01;
@@ -2722,7 +2877,9 @@ function loop() {
   orbitPivot.rotation.y += dt * 2.2;
   halo.position.copy(vis.pos);
   halo.material.opacity = vis.scale * (G.mode === 'title' ? 0 : 1);
-  bgU.uWell.value.lerp(_a.copy(vis.pos).sub(bgRoot.position), 1 - Math.exp(-dt * 0.8));
+  _a.copy(vis.pos).sub(bgRoot.position);
+  if (RUN.zone && RUN.zone.type === 'trichter' && RUN.segs[RUN.si]) _a.addScaledVector(RUN.segs[RUN.si].d, 32); // the well opens up ahead
+  bgU.uWell.value.lerp(_a, 1 - Math.exp(-dt * 0.8));
 
   trailTimer += dt;
   if (trailTimer > 0.016) {

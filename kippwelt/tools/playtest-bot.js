@@ -69,7 +69,7 @@
     if (dashing && st.dashT === 0 && st.dashExt < 0.8 && stackM(st, seg, Math.round(st.s + 0.5), st.fi, st.lane) === -Infinity) { st.dashT = 0.04; st.dashExt += 0.04; }
     const adv = speed * (dashing ? 2.4 : 1) * DT;
     st.s += adv; st.dist += adv;
-    if (st.s >= seg.L) { st.s -= seg.L; st.si++; seg = RUN.segs[st.si]; if (!seg) return null; }
+    if (st.s >= seg.L) { const nx = RUN.segs[st.si + 1]; const concave = nx && nx.d.dot(T.faceN(seg.d, st.fi)) > 0.5; st.s -= seg.L; st.si++; seg = RUN.segs[st.si]; if (!seg) return null; if (concave) st.s = Math.max(st.s, 1.5 + R + 0.2); }
     st.prevY = st.y;
     if (dashing) st.vy = 0; else st.vy -= T.GRAV * (st.slam ? 2.2 : 1) * DT;
     st.y += st.vy * DT;
@@ -78,7 +78,7 @@
     if (st.vy <= 0 && st.y <= floor && (st.prevY >= floor - 0.05 || st.y > floor - 0.45)) { st.y = floor; st.vy = 0; st.grounded = true; st.slam = false; }
     else if (st.y > floor + 0.02) st.grounded = false;
     const kA = Math.round(st.s + 0.32);
-    const hA = stackM(st, seg, kA, st.fi, st.lane);
+    const hA = kA >= seg.L - 1 ? Math.min(stackM(st, seg, kA, st.fi, st.lane), 0) : stackM(st, seg, kA, st.fi, st.lane); // turn is always taken
     if (hA > st.y + 0.32 && hA - st.y <= 0.6) { st.y = hA; st.vy = Math.max(st.vy, 0); st.grounded = true; }
     else if (hA > st.y + 0.32) {
       if (!dashing) return 'aufgeprallt';
