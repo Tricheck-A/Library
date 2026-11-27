@@ -25,17 +25,18 @@ const camera = new THREE.PerspectiveCamera(62, 1, 0.05, 400);
 const U = { time: { value: 0 }, px: { value: dpr } };
 // Post FX: the scene renders into a texture, then one composite pass adds chromatic
 // aberration, radial motion blur, vignette, grain and (in bullet time) afterimages.
-// Farbrausch palettes: five tones each, dark base → light, built around complementary pairs.
-const hex3 = (h) => new THREE.Vector3(((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255);
+// Farbrausch: cosine palettes (a + b·cos(2π(c·t + d))) give a whole harmonious spectrum at once;
+// c stretches / folds the spectrum, d phase-shifts the three channels.
 const PALETTES = {
-  synth:   [0x14062e, 0xff2e88, 0xff8a3d, 0x2de2e6, 0xfff3fb], // magenta / orange ↔ cyan
-  saeure:  [0x061a14, 0x8a2be2, 0xb6ff3b, 0x22d3ee, 0xf4ffe0], // violet ↔ lime
-  uv:      [0x10002b, 0x7b2cff, 0xff3cac, 0xffe14d, 0xfffbe6], // ultraviolet ↔ yellow
-  koralle: [0x04161c, 0x0f8b8d, 0xff6f59, 0xffd166, 0xfff6ea], // petrol ↔ coral
-  aqua:    [0x050d2b, 0x3a86ff, 0xff006e, 0x8affd4, 0xf2fbff], // blue / pink ↔ mint
-  sunset:  [0x1d0614, 0xd7263d, 0xf46036, 0x1b998b, 0xfff1d0], // red / amber ↔ teal
+  regenbogen: { c: [1, 1, 1], d: [0.0, 0.33, 0.67] },   // full rainbow
+  synth:      { c: [1, 1, 1], d: [0.8, 0.9, 0.3] },      // magenta, violet, cyan, gold
+  koralle:    { c: [1, 0.7, 0.4], d: [0.0, 0.15, 0.2] }, // coral, peach, teal, petrol
+  aqua:       { c: [1, 1, 0.5], d: [0.8, 0.9, 0.3] },    // pink, mint, blue, lime
+  sunset:     { c: [2, 1, 0], d: [0.5, 0.2, 0.25] },     // red, amber, turquoise, plum
+  saeure:     { c: [1, 1, 1], d: [0.3, 0.2, 0.2] },      // lime, magenta, cyan, orange
+  uv:         { c: [1, 1, 1], d: [0.5, 0.2, 0.25] },     // violet, pink, yellow, green
 };
-const ZONE_PALETTE = { wogen: 'koralle', senke: 'saeure', fluss: 'aqua', sand: 'sunset', spirale: 'synth', schlange: 'uv', negativ: 'saeure' };
+const ZONE_PALETTE = { wogen: 'koralle', senke: 'saeure', fluss: 'aqua', sand: 'sunset', spirale: 'regenbogen', schlange: 'uv', negativ: 'saeure' };
 const BIOME_PALETTE = ['synth', 'uv', 'aqua'];
 const post = {
   scene: new THREE.WebGLRenderTarget(1, 1, { samples: 4 }),
@@ -44,63 +45,74 @@ const post = {
   cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1),
   quad: new THREE.Scene(),
 };
+const V3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 post.mat = new THREE.ShaderMaterial({
   uniforms: {
     tScene: { value: null }, tPrev: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uTime: { value: 0 },
     uCA: { value: 0 }, uBlur: { value: 0 }, uAfter: { value: 0 }, uFlash: { value: 0 }, uVig: { value: 0.55 }, uInvert: { value: 0 },
-    uColor: { value: 0 }, uHue: { value: 0 }, uTrip: { value: 1 }, uPalMix: { value: 0 },
-    uPalA: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uPalB: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uCenter: { value: new THREE.Vector2(0.5, 0.52) },
+    uColor: { value: 0 }, uHue: { value: 0 }, uTrip: { value: 1 }, uPalMix: { value: 1 },
+    uPCA: { value: V3(PALETTES.synth.c) }, uPDA: { value: V3(PALETTES.synth.d) }, uPCB: { value: V3(PALETTES.synth.c) }, uPDB: { value: V3(PALETTES.synth.d) },
+    uCenter: { value: new THREE.Vector2(0.5, 0.52) },
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: /* glsl */`
     uniform sampler2D tScene, tPrev; uniform vec2 uRes, uCenter; uniform float uTime, uCA, uBlur, uAfter, uFlash, uVig, uInvert;
-    uniform float uColor, uHue, uTrip, uPalMix; uniform vec3 uPalA[5], uPalB[5];
+    uniform float uColor, uHue, uTrip, uPalMix; uniform vec3 uPCA, uPDA, uPCB, uPDB;
     varying vec2 vUv;
     vec3 ca(vec2 uv, vec2 d){
       return vec3(texture2D(tScene, uv + d * uCA).r, texture2D(tScene, uv).g, texture2D(tScene, uv - d * uCA).b);
     }
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-    vec3 pal(int i){ return mix(uPalA[i], uPalB[i], uPalMix); }
-    // dark base → bright: maps the monochrome world onto the palette
-    vec3 ramp(float t){
-      t = clamp(t, 0.0, 1.0) * 4.0;
-      int i = int(min(floor(t), 3.0));
-      return mix(pal(i), pal(i + 1), smoothstep(0.0, 1.0, t - float(i)));
+    vec3 spectrum(float t){
+      vec3 c = mix(uPCA, uPCB, uPalMix), dd = mix(uPDA, uPDB, uPalMix);
+      return 0.5 + 0.5 * cos(6.2831853 * (c * t + dd));
     }
-    // cycles through the four bright colours (1..4), wrapping: the trippy part
-    vec3 cycle(float t){
-      t = fract(t) * 4.0;
-      int i = int(floor(t));
-      vec3 a = pal(1 + i), b = pal(1 + (i + 1) - ((i + 1) / 4) * 4);
-      return mix(a, b, smoothstep(0.0, 1.0, fract(t)));
+    // rotate a colour around the grey axis (hue shift)
+    vec3 hueRot(vec3 c, float a){
+      const vec3 k = vec3(0.57735);
+      float cs = cos(a);
+      return c * cs + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - cs);
     }
     void main(){
       vec2 d = vUv - uCenter;
+      // melting: the whole picture wobbles gently in colour mode
+      vec2 uv = vUv + uColor * uTrip * 0.0045 * vec2(sin(vUv.y * 11.0 + uTime * 1.3) + sin(vUv.y * 23.0 - uTime * 0.7) * 0.4,
+                                                     cos(vUv.x * 9.0 + uTime * 1.1) + cos(vUv.x * 19.0 + uTime * 0.9) * 0.4);
       vec3 col;
       if (uBlur > 0.01) {
         col = vec3(0.0);
-        for (int i = 0; i < 6; i++) col += ca(vUv - d * uBlur * float(i) * 0.022, d);
+        for (int i = 0; i < 6; i++) col += ca(uv - d * uBlur * float(i) * 0.022, d);
         col /= 6.0;
-      } else col = ca(vUv, d);
+      } else col = ca(uv, d);
       col = mix(col, 1.0 - col, uInvert);
       if (uColor > 0.001) {
-        // Farbrausch: luminance → palette ramp, plus colour rings running out of the centre
-        // and a slow hue drift, so the same shapes keep changing colour
         float lum = dot(col, vec3(0.299, 0.587, 0.114));
-        float rd = length(d * vec2(uRes.x / uRes.y, 1.0));
-        float rings = sin(rd * 13.0 - uTime * 1.7 + lum * 2.5);
-        vec3 base = ramp(lum * 1.08);
-        vec3 cyc = cycle(lum * 1.4 + uHue + rings * 0.09 * uTrip + d.y * 0.35 * uTrip);
-        vec3 cc = mix(base, cyc, smoothstep(0.08, 0.55, lum) * 0.62);
-        cc += pal(4) * smoothstep(0.88, 1.0, lum) * 0.35;           // highlights bloom into the lightest tone
-        cc = mix(cc, cc * (0.85 + 0.25 * rings), 0.35 * uTrip);      // faint banding
-        cc += (col - lum) * 1.6;                                     // keep the RGB split fringes from the aberration
+        vec2 q = d * vec2(uRes.x / uRes.y, 1.0);
+        float r = length(q), ang = atan(q.y, q.x);
+        // one colour field over the whole screen: rings, spiral petals, a slow domain warp, and luminance,
+        // so neighbouring shapes always sit in different hues and everything keeps flowing
+        float warp = sin(q.x * 5.0 + uTime * 0.6 + sin(q.y * 4.0 - uTime * 0.5)) * cos(q.y * 6.0 - uTime * 0.8);
+        float field = uHue + r * 1.6 - uTime * 0.11 + 0.22 * sin(3.0 * ang + r * 5.0 - uTime * 0.9) * uTrip + warp * 0.18 * uTrip + lum * 1.5;
+        vec3 glow = spectrum(field);
+        vec3 dc = spectrum(field + 0.5);
+        vec3 deep = dc * dc * dc * 0.24;                                // shadows: the complementary hue, deep and saturated
+        float bands = abs(fract(lum * 5.0 - uTime * 0.35 + r * 0.6) - 0.5) * 2.0; // luminance contours, wandering
+        vec3 contour = spectrum(field * 1.7 + 0.25) * smoothstep(0.82, 1.0, 1.0 - bands) * smoothstep(0.06, 0.35, lum);
+        vec3 cc = mix(deep, glow * (0.3 + 1.15 * lum), smoothstep(0.02, 0.45, lum));
+        cc += contour * 0.55 * uTrip;
+        cc += spectrum(field + 0.33) * smoothstep(0.75, 1.0, lum) * 0.4;   // hot cores shimmer in a third hue
+        cc += (col - lum) * 1.8;                                         // keep the RGB split fringes
         col = mix(col, cc, uColor);
       }
       float vig = smoothstep(1.15, 0.3, length(d * vec2(uRes.x / uRes.y, 1.0)));
-      col *= mix(1.0, vig, uVig * (1.0 - uInvert * 0.7));
-      col += (hash(vUv * uRes + fract(uTime) * 91.0) - 0.5) * 0.04 * (1.0 - uColor * 0.6); // less grain on colour fields
-      if (uAfter > 0.01) col = max(col, texture2D(tPrev, vUv).rgb * uAfter - 0.035);
+      col *= mix(1.0, vig, uVig * (1.0 - uInvert * 0.7) * (1.0 - uColor * 0.5));
+      col += (hash(vUv * uRes + fract(uTime) * 91.0) - 0.5) * 0.04 * (1.0 - uColor * 0.7);
+      if (uAfter > 0.01) {
+        // colour mode: the echo is zoomed a touch and hue-shifted every frame → rainbow tunnel trails
+        vec2 fuv = uCenter + (vUv - uCenter) * mix(1.0, 0.986, uColor);
+        vec3 prev = hueRot(texture2D(tPrev, fuv).rgb, uColor * 0.09);
+        col = max(col, prev * uAfter - 0.03);
+      }
       gl_FragColor = vec4(col + uFlash, 1.0);
     }`,
   depthTest: false, depthWrite: false,
@@ -116,13 +128,14 @@ function setPalette(name, dur = 2) {
   palName = name;
   const u = post.mat.uniforms;
   // freeze the current blend into A, then fade towards the new palette in B
-  u.uPalA.value.forEach((v, i) => v.lerp(u.uPalB.value[i], u.uPalMix.value));
-  PALETTES[name].forEach((h, i) => u.uPalB.value[i].copy(hex3(h)));
+  u.uPCA.value.lerp(u.uPCB.value, u.uPalMix.value);
+  u.uPDA.value.lerp(u.uPDB.value, u.uPalMix.value);
+  u.uPCB.value.copy(V3(PALETTES[name].c));
+  u.uPDB.value.copy(V3(PALETTES[name].d));
   gsap.killTweensOf(u.uPalMix);
   u.uPalMix.value = 0;
   gsap.to(u.uPalMix, { value: 1, duration: dur, ease: 'sine.inOut' });
 }
-PALETTES.synth.forEach((h, i) => { post.mat.uniforms.uPalA.value[i].copy(hex3(h)); post.mat.uniforms.uPalB.value[i].copy(hex3(h)); });
 post.mat.uniforms.uTrip.value = REDUCED ? 0.3 : 1;
 let colorOn = false;
 try { colorOn = localStorage.getItem('kippwelt-color') === 'on'; } catch (_) {}
@@ -3178,7 +3191,7 @@ function loop() {
   renderFrame(
     (REDUCED ? 0 : 0.0018 + speedK * 0.004 + slowK * 0.012) + fx.ca,
     (REDUCED ? 0 : speedK * 0.45) + fx.blur,
-    REDUCED ? 0 : Math.min(0.8, Math.max(fx.after, slowK * 0.85, post.mat.uniforms.uColor.value * 0.32)),
+    REDUCED ? 0 : Math.min(0.85, Math.max(fx.after, slowK * 0.85, post.mat.uniforms.uColor.value * 0.62)),
     fx.flash);
 
   frames++;

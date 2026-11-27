@@ -85,7 +85,7 @@ Phasenblöcke (gepunktet / schraffiert) sind nur in ihrer Phase fest. Stacheln s
 
 ## Farbrausch
 
-Schalter im Startmenü und in der Pause (wird gemerkt). Der Nachbearbeitungs-Pass bildet die schwarz-weiße Welt auf eine Palette mit fünf Tönen ab (dunkle Grundfarbe bis hellster Ton, jeweils um Komplementärpaare gebaut: Magenta/Orange ↔ Cyan, Violett ↔ Limette, Ultraviolett ↔ Gelb, Petrol ↔ Koralle, Blau/Pink ↔ Mint, Rot/Amber ↔ Türkis). Darüber laufen Farbringe aus der Bildmitte, die Farben driften langsam durch die Palette (in der Bullet Time schneller), Stöße bei Sprung, Dash oder Tod lassen die Farben springen, und Bewegungen ziehen farbige Nachbilder. Jedes Biom und jede Zone hat eine eigene Palette, die weich überblendet; die Negativ-Zone kippt in die Komplementärfarben.
+Schalter im Startmenü und in der Pause (wird gemerkt). Ein Farbfeld über dem ganzen Bild setzt sich aus Ringen um die Mitte, Spiralblüten, einer langsam fließenden Verzerrung und der Helligkeit zusammen; Kosinus-Paletten machen daraus ein harmonisches Spektrum, so dass benachbarte Formen immer in verschiedenen Farben stehen. Schatten nehmen die Komplementärfarbe an, Helligkeitsstufen werden zu wandernden Regenbogen-Konturlinien, das Bild schmilzt leicht, und jedes Bild hinterlässt ein leicht vergrößertes, farbverschobenes Echo (Regenbogen-Tunnel hinter allem, was sich bewegt). Biome und Zonen haben eigene Paletten (Regenbogen, Synth, Koralle, Aqua, Sunset, Säure, UV), die weich überblenden; Stöße lassen die Farben springen, in der Bullet Time fließen sie schneller.
 
 ## Musik und Sounds
 
