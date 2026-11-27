@@ -2,7 +2,7 @@
 
 Mobiles Ein-Daumen-Spiel im Stil der Gestenwelten mit zwei Modi:
 
-* **Lauf** (Endlos-Runner): Die Kugel rast über einen 3×3-Balken. Drei Spuren pro Seite; wer über die äußere Spur hinaus wechselt, kippt auf die nächste Seite des Balkens und die Welt dreht sich um 90°. Am Ende jedes Abschnitts knickt die Strecke ab. Dazu Sprungfelder, Sprungringe in der Luft, Schwerkraftportale, Phasenringe und ein Synth-Beat, im dem die Blöcke pulsieren. Alle 420 m wechselt das Biom (wabe, senke, schacht) und das Tempo steigt.
+* **Lauf** (Endlos-Runner): Die Kugel rast über einen 3×3-Balken. Zwei Spuren pro Seite (die Kanten, dazwischen eine dunkle Rinne); wer über die äußere Spur hinaus wechselt, kippt auf die nächste Seite des Balkens und die Welt dreht sich um 90°. Am Ende jedes Abschnitts knickt die Strecke ab. Dazu Sprungfelder, Sprungringe in der Luft, Schwerkraftportale, Phasenringe und ein Synth-Beat, im dem die Blöcke pulsieren. Alle 420 m wechselt das Biom (wabe, senke, schacht) und das Tempo steigt.
 * **Rätsel**: Eine Kugel rollt über schwebende Blöcke, an jeder Kante kippt die Schwerkraft mit. Sammle alle Schlüssel, dann öffnet sich der Ausgang.
 
 Die Mechaniken sind von Kula World, Subway Surfers, Temple Run und Geometry Dash inspiriert. Levels, Strecken-Generator, Grafik und die Phasenmechanik sind eigene Entwürfe.
@@ -33,7 +33,11 @@ Hindernisse: Blöcke und Türme, Stacheln, Lücken, Schieber (gleiten über die 
 
 ## Wandlungs-Zonen
 
-Ab 150 m und danach alle 200 bis 320 m verwandelt sich die Welt für etwa 150 m: **Spirale** (Strecke, Schacht und Hintergrund drehen sich korkenzieherartig um die Bahn), **Trichter** (die Strecke stürzt vor dir in eine Senke), **Welle**, **Schlange** und **Negativ** (alles invertiert). Später kombinieren sich Zonen. Die Verformung wirkt nur vor der Kugel und glättet sich beim Näherkommen, rund um die Kugel bleibt alles flach und spielbar. Technisch ist das eine gemeinsame Vertex-Funktion `warpRun`, die alle Shader und auch die eingebauten Materialien nutzen.
+Ab 80 m und danach alle 90 bis 170 m verwandelt sich die Welt für 170 bis 240 m: **Spirale** (Strecke, Schacht und Hintergrund drehen sich korkenzieherartig um die Bahn), **Trichter** (die Strecke stürzt vor dir in eine Senke), **Welle**, **Schlange** und **Negativ** (alles invertiert). Zonen kombinieren sich (zu Beginn selten, später häufiger). Die Verformung wirkt nur vor der Kugel und glättet sich beim Näherkommen, rund um die Kugel bleibt alles flach und spielbar. Technisch ist das eine gemeinsame Vertex-Funktion `warpRun`, die alle Shader und auch die eingebauten Materialien nutzen.
+
+## Fairness-Regeln des Generators
+
+Jedes Muster auf einer Seite ist ohne Dash schaffbar: eine Spur bleibt frei, das Hindernis ist überspringbar oder ein Sprungfeld trägt dich darüber. Ringförmige Wände (Phasenringe, Kippringe, Drehringe) kommen nie direkt hintereinander. Der Boden-Dash löst nur aus, wenn das erste Hindernis in deiner Spur zu hoch zum Springen ist; zerschlagene Blöcke verlängern den Dash, und über einem Loch trägt er dich bis zum nächsten Boden. Kleine Kanten bis etwa einer halben Blockhöhe steigt die Kugel hinauf.
 
 ## Effekte
 

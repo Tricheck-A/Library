@@ -112,7 +112,7 @@ vec3 warpRun(vec3 w){
   vec3 rel = w - uAxisO;
   float a = dot(rel, uDir);
   float t = max(a, 0.0);
-  float f = smoothstep(4.0, 24.0, t);
+  float f = smoothstep(3.0, 18.0, t);
   if (abs(uTwist) > 0.0001) {
     vec3 along = uDir * a, rad = rel - along;
     float ang = uTwist * t * f;
@@ -375,7 +375,8 @@ const RUN_BLOCK_VS = /* glsl */`
   void main(){
     vec3 off0 = vec3(0.0);
     float solid = (aPhase < 0.5 || aPhase > 2.5) ? 1.0 : (aPhase < 1.5 ? 1.0 - uPhaseMix : uPhaseMix);
-    if (aPhase > 3.5) { float sh = 0.03 * sin(uTime * 40.0 + aSeed * 30.0); off0 = aOut * sh; }
+    if (aPhase > 3.5 && aPhase < 4.5) { float sh = 0.03 * sin(uTime * 40.0 + aSeed * 30.0); off0 = aOut * sh; }
+    if (aPhase > 4.5) off0 = -aOut * 0.22;
     float ahead = aTrack - uDist;
     vec3 p = position * mix(0.84, 1.0, ease3(solid));
     vec3 off = off0;
@@ -432,7 +433,10 @@ const BLOCK_FS = /* glsl */`
     float edge = 1.0 - smoothstep(0.03, 0.03 + fwidth(e) * 1.5, e);
     float d = max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
     float c;
-    if (vPhase > 3.5) {
+    if (vPhase > 4.5) {
+      // middle rail between the two lanes: dark groove
+      c = edge * 0.3 + 0.015;
+    } else if (vPhase > 3.5) {
       // crumbling floor: cracks that flicker
       float cr = abs(fract((vUv.x * 1.7 + vUv.y * 0.6) * 3.0 + vSeed) - 0.5);
       float crack = 1.0 - smoothstep(0.03, 0.03 + fwidth(cr) * 1.5, cr);
@@ -1462,7 +1466,7 @@ runGroup.visible = false;
 scene.add(runGroup);
 const RUNMAP = new Map(); // world cell → 0 shell, 1 / 2 phase block, 3 obstacle
 const RUN = {
-  segs: [], si: 0, s: 0, fi: 0, lane: 0, uT: 0, uV: 0, y: 0, vy: 0, prevY: 0, grounded: true,
+  segs: [], si: 0, s: 0, fi: 0, lane: -1, uT: -1, uV: -1, y: 0, vy: 0, prevY: 0, grounded: true,
   speed: 8, dist: 0, genDist: 0, shards: 0, phase: 1, turnQueued: false, sog: 0, focus: 1,
   timeScale: 1, slow: false, biome: 0, offset: new THREE.Vector3(), jumpBuf: 0, best: 0, nextId: 0,
   moment: 1, dash: 1, dashT: 0, slam: false,
@@ -1482,7 +1486,7 @@ const faceCell = (seg, k, fi, lane, h = 0) =>
 function occ(p) {
   const t = RUNMAP.get(kv(p));
   if (t === undefined) return false;
-  return t === 0 || t === 3 || t === 4 || t === RUN.phase;
+  return t === 0 || t === 3 || t === 4 || t === 5 || t === RUN.phase;
 }
 const RUNREF = new Map();
 const RUNMETA = new Map(); // cell → [track distance, outward x, y, z] for the shader
@@ -1699,7 +1703,8 @@ function addRing(seg, k) {
   seg.group.add(g);
   seg.rings.push({ k, angles, spin, mesh: g, w: (Math.random() < 0.5 ? -1 : 1) * (0.7 + Math.random() * 0.4), ph: Math.random() * 6.28, alive: true });
 }
-const pickLane = () => [-1, 0, 1][(Math.random() * 3) | 0];
+const pickLane = () => (Math.random() < 0.5 ? -1 : 1);
+const ALL = [-1, 0, 1]; // full width incl. the middle rail, for walls that block the whole side
 function weighted(list) {
   const total = list.reduce((s, [w]) => s + Math.max(0, w), 0);
   let r = Math.random() * total;
@@ -1707,25 +1712,26 @@ function weighted(list) {
   return list[0][1];
 }
 // Every face pattern is beatable on its own face, so staying on one side is always possible.
+// Every face pattern is beatable on its own side without the dash:
+// one lane stays free, or the obstacle can be jumped, or a pad launches you.
+const other = (l) => -l;
 function facePattern(seg, k, fi, D) {
   const fn = weighted([
-    [1.6 - 1.2 * D, () => { shardLine(seg, k, fi, pickLane(), 4); return 0; }],
-    [0.5 + D * 1.2, () => { const l = pickLane(); addCrusher(seg, k, fi, l); return 0; }],
-    [0.7 + D * 0.8, () => { const l = pickLane(); addCrumble(seg, k, fi, l, 3); if (Math.random() < D) addCrumble(seg, k, fi, l === 0 ? 1 : 0, 3); shardLine(seg, k, fi, l, 3, 0.2); return 3; }],
-    [0.6 + D * 0.6, () => { addFlip(seg, k, fi, pickLane()); [-1, 0, 1].forEach((l) => addSpike(seg, k + 3, fi, l)); return 3; }],
-    [2, () => { const l = pickLane(); addObstacle(seg, k, fi, l, 1); shardLine(seg, k - 1, fi, l === 0 ? 1 : 0, 3); return 0; }],
-    [0.8 + 2 * D, () => { const free = pickLane(); [-1, 0, 1].forEach((l) => l !== free && addObstacle(seg, k, fi, l, 1)); shardLine(seg, k - 1, fi, free, 3); return 0; }],
-    [1.6, () => { [-1, 0, 1].forEach((l) => addObstacle(seg, k, fi, l, 1 + (D > 0.5 && Math.random() < 0.3 ? 0 : 0))); shardLine(seg, k, fi, pickLane(), 2, 1); return 1; }],
+    [1.2 - 0.8 * D, () => { shardLine(seg, k, fi, pickLane(), 4); return 0; }],
+    [2, () => { const l = pickLane(); addObstacle(seg, k, fi, l, 1); shardLine(seg, k - 1, fi, other(l), 3); return 0; }],
+    [1.4, () => { ALL.forEach((l) => addObstacle(seg, k, fi, l, 1)); shardLine(seg, k, fi, pickLane(), 2, 1); return 1; }],
+    [1.2 + D, () => { const l = pickLane(); addObstacle(seg, k, fi, l, 2); addObstacle(seg, k, fi, 0, 2); shardLine(seg, k - 1, fi, other(l), 3); return 0; }],
     [1.6, () => { addSpike(seg, k, fi, pickLane()); return 0; }],
-    [1.2 + D, () => { [-1, 0, 1].forEach((l) => addSpike(seg, k, fi, l)); shardArc(seg, k - 2, fi, pickLane(), 4); return 0; }],
-    [1 + D, () => { const free = pickLane(); [-1, 0, 1].forEach((l) => l !== free && addObstacle(seg, k, fi, l, 2)); return 0; }],
+    [1.1 + D, () => { addSpike(seg, k, fi, -1); addSpike(seg, k, fi, 1); shardArc(seg, k - 2, fi, pickLane(), 4); return 0; }],
     [1.4 + D, () => { const len = D > 0.45 ? 3 : 2; addGap(seg, k, fi, len); shardArc(seg, k - 1, fi, pickLane(), len + 1); return len; }],
-    [D * 1.4, () => { [-1, 0, 1].forEach((l) => { addObstacle(seg, k, fi, l, 1); addObstacle(seg, k + 3, fi, l, 2); }); shardLine(seg, k + 3, fi, pickLane(), 1, 2); return 4; }],
-    [0.6 + D * 0.8, () => { addPad(seg, k, fi); [-1, 0, 1].forEach((l) => { addObstacle(seg, k + 3, fi, l, 2); addObstacle(seg, k + 4, fi, l, 2); }); shardArc(seg, k, fi, 0, 6); return 8; }],
-    [0.4 + D * 1.4, () => { addSweeper(seg, k, fi); return 1; }],
+    [0.6 + D * 0.8, () => { addPad(seg, k, fi); ALL.forEach((l) => { addObstacle(seg, k + 3, fi, l, 2); addObstacle(seg, k + 4, fi, l, 2); }); shardArc(seg, k, fi, pickLane(), 6); return 8; }],
+    [0.5 + D * 1.2, () => { addCrusher(seg, k, fi, pickLane()); return 0; }],
+    [0.7 + D * 0.8, () => { const l = pickLane(); addCrumble(seg, k, fi, l, 3); shardLine(seg, k, fi, l, 3, 0.2); return 3; }],
+    [0.6 + D * 0.6, () => { const l = pickLane(); addFlip(seg, k, fi, l); addSpike(seg, k + 3, fi, -1); addSpike(seg, k + 3, fi, 1); return 3; }],
+    [0.4 + D * 1.2, () => { addSweeper(seg, k, fi); return 1; }],
     [0.8 + D, () => { addLaser(seg, k, fi, false); shardArc(seg, k - 2, fi, pickLane(), 4); return 0; }],
-    [D > 0.2 ? 0.9 : 0, () => { addLaser(seg, k, fi, true); shardLine(seg, k - 1, fi, pickLane(), 3); return 0; }],
-    [D > 0.3 ? 1 : 0, () => { addGap(seg, k, fi, 5); [-1, 0, 1].forEach((l) => addOrb(seg, k + 1, fi, l, 1.45)); return 5; }],
+    [D > 0.2 ? 0.8 : 0, () => { addLaser(seg, k, fi, true); shardLine(seg, k - 1, fi, pickLane(), 3); return 0; }],
+    [D > 0.3 ? 0.9 : 0, () => { addGap(seg, k, fi, 5); [-1, 1].forEach((l) => addOrb(seg, k + 1, fi, l, 1.45)); return 5; }],
   ]);
   return fn();
 }
@@ -1747,13 +1753,15 @@ function makeSeg(prev) {
     cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], crushers: [], crumbles: [], flips: [], rings: [], group: new THREE.Group(), start: RUN.genDist,
   };
   for (let k = prev ? 1 : -8; k <= L; k++) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-    if (i || j) setCell(seg, o.clone().addScaledVector(d, k).addScaledVector(Y, i).addScaledVector(seg.r, j), 0, RUN.genDist + k, Y.clone().multiplyScalar(i).addScaledVector(seg.r, j).normalize());
+    if (i || j) setCell(seg, o.clone().addScaledVector(d, k).addScaledVector(Y, i).addScaledVector(seg.r, j), i && j ? 0 : 5, RUN.genDist + k, Y.clone().multiplyScalar(i).addScaledVector(seg.r, j).normalize());
   }
   let k = prev ? 9 : 44; // first segment: long run-in while the hints show
+  let lastGlobal = false;
   while (k < L - 12) {
     const dd = Math.min(1, (seg.start + k) / 1800);
     let extra = 0;
-    const g = Math.random();
+    const g = lastGlobal ? 1 : Math.random(); // never two ring-shaped walls in a row
+    lastGlobal = g < 0.18 + dd * 0.1;
     if (g < 0.045 + dd * 0.03) { addPortal(seg, k); extra = 3; }
     else if (dd > 0.2 && g < 0.1 + dd * 0.06) { addRing(seg, k); extra = 2; }
     else if (g < 0.18 + dd * 0.1) {
@@ -1764,7 +1772,7 @@ function makeSeg(prev) {
       for (let fi = 0; fi < 4; fi++) extra = Math.max(extra, facePattern(seg, k, fi, dd));
       if (Math.random() < 0.06) addSog(seg, k + 3, (Math.random() * 4) | 0, pickLane());
     }
-    k += Math.round(Math.max(6, speedAt(seg.start + k) * 0.55 + 2.5) + extra);
+    k += Math.round(Math.max(6.5, speedAt(seg.start + k) * 0.6 + 3) + extra);
   }
   if (seg.shards.length) {
     const im = new THREE.InstancedMesh(shardGeo, white, seg.shards.length);
@@ -1843,9 +1851,9 @@ function startRun() {
   audioInit();
   clearRun();
   Object.assign(RUN, {
-    si: 0, s: 0, fi: 0, lane: 0, uT: 0, uV: 0, y: 0, vy: 0, prevY: 0, grounded: true, speed: 8, dist: 0, genDist: 0,
+    si: 0, s: 0, fi: 0, lane: -1, uT: -1, uV: -1, y: 0, vy: 0, prevY: 0, grounded: true, speed: 8, dist: 0, genDist: 0,
     shards: 0, phase: 1, turnQueued: false, sog: 0, focus: 1, timeScale: 1, slow: false, jumpBuf: 0,
-    moment: 1, dash: 1, dashT: 0, slam: false, zone: null, nextZone: 150,
+    moment: 1, dash: 1, dashT: 0, slam: false, zone: null, nextZone: 80,
   });
   gsap.killTweensOf(RUN);
   resetWarp();
@@ -1932,11 +1940,10 @@ function turnRequired() {
   const da = nd.dot(a), dn = nd.dot(n);
   return da > 0.5 ? 'right' : da < -0.5 ? 'left' : dn > 0.5 ? 'up' : 'down';
 }
+// Two lanes per side (the edge lanes). One swipe: other lane; from the outer one: tip over the edge.
 function laneShift(dl) {
-  RUN.lane += dl; RUN.uT += dl;
-  if (RUN.lane > 1) { RUN.fi += 1; RUN.lane = -1; sfx.wrap(); vibrate(8); bgEvent(vis.pos, 0.8); }
-  else if (RUN.lane < -1) { RUN.fi -= 1; RUN.lane = 1; sfx.wrap(); vibrate(8); bgEvent(vis.pos, 0.8); }
-  else sfx.lane();
+  if (RUN.lane === -dl) { RUN.lane = dl; RUN.uT += 2 * dl; sfx.lane(); }
+  else { RUN.fi += dl; RUN.lane = -dl; RUN.uT += dl; sfx.wrap(); vibrate(8); bgEvent(vis.pos, 0.8); }
   kick(0.006, 0, 0);
 }
 function shockRing(pos, normal, size = 7) {
@@ -1981,7 +1988,8 @@ function runJump() {
 // Air dash: straight forward at 2.4x speed, gravity off, smashes through blocks.
 function runDash() {
   if (RUN.dash < 1 || RUN.dashT > 0) return false;
-  RUN.dash = 0; RUN.dashT = 0.4; RUN.vy = 0;
+  RUN.dash = 0; RUN.dashT = 0.4; RUN.vy = 0; RUN.dashExt = 0;
+  if (RUN.y < 0) RUN.y = Math.max(RUN.y, -0.2);
   sfx.dash(); vibrate(16);
   stretchDash();
   kick(0.05, 1.6, 0.06);
@@ -2012,10 +2020,13 @@ function runPhase() {
 function wallAhead() {
   const seg = RUN.segs[RUN.si];
   const reach = Math.ceil(RUN.speed * 0.4 + 1.5);
+  // decide by the FIRST thing in the ball's lane: jumpable stuff is jumped, tall walls are dashed
   for (let dk = 1; dk <= reach; dk++) {
     const h = stackAt(seg, Math.round(RUN.s) + dk);
     if (h === -Infinity) return false;
-    if (h >= 2 || sweeperAhead(seg, Math.round(RUN.s) + dk)) return true;
+    if (h >= 2) return true;
+    if (h === 1) return false;
+    if (sweeperAhead(seg, Math.round(RUN.s) + dk)) return true;
   }
   return false;
 }
@@ -2033,15 +2044,19 @@ function startZone() {
   let type;
   do type = ZONES[(Math.random() * ZONES.length) | 0]; while (type === RUN.lastZone);
   RUN.lastZone = type;
-  RUN.zone = { type, end: RUN.dist + 150 + Math.random() * 60 };
+  RUN.zone = { type, end: RUN.dist + 170 + Math.random() * 70 };
   const D = Math.min(1, RUN.dist / 1800);
   const t = {};
-  if (type === 'spirale') t.uTwist = (Math.random() < 0.5 ? -1 : 1) * (0.045 + 0.025 * D);
-  if (type === 'trichter') t.uCurve = 0.005 + 0.003 * D;
-  if (type === 'welle') t.uWave = 1;
-  if (type === 'schlange') t.uSnake = 1;
-  if (type === 'negativ') { t.uTwist = 0.012; gsap.to(post.mat.uniforms.uInvert, { value: 1, duration: 0.5, ease: 'power2.inOut' }); }
-  if (D > 0.45 && type !== 'negativ' && Math.random() < 0.5) t.uWave = Math.max(t.uWave || 0, 0.6); // later zones combine
+  if (type === 'spirale') t.uTwist = (Math.random() < 0.5 ? -1 : 1) * (0.075 + 0.035 * D);
+  if (type === 'trichter') t.uCurve = 0.01 + 0.005 * D;
+  if (type === 'welle') t.uWave = 1.7;
+  if (type === 'schlange') t.uSnake = 1.6;
+  if (type === 'negativ') { t.uTwist = 0.03; t.uWave = 0.6; gsap.to(post.mat.uniforms.uInvert, { value: 1, duration: 0.5, ease: 'power2.inOut' }); }
+  // zones combine from the start, more often later on
+  if (type !== 'negativ' && Math.random() < 0.35 + D * 0.4) {
+    const extra = ['uTwist', 'uWave', 'uSnake'][(Math.random() * 3) | 0];
+    if (!t[extra]) t[extra] = extra === 'uTwist' ? 0.04 * (Math.random() < 0.5 ? -1 : 1) : 0.9;
+  }
   tweenWarp(t, 3);
   toast(type);
   wipe(1);
@@ -2052,7 +2067,7 @@ function endZone() {
   tweenWarp({}, 3);
   gsap.to(post.mat.uniforms.uInvert, { value: 0, duration: 0.6, ease: 'power2.inOut' });
   RUN.zone = null;
-  RUN.nextZone = RUN.dist + 200 + Math.random() * 120;
+  RUN.nextZone = RUN.dist + 90 + Math.random() * 80;
 }
 function runInput(dir) {
   if (G.mode !== 'run') return;
@@ -2111,6 +2126,8 @@ function runStep(dt) {
   RUN.speed = speedAt(RUN.dist);
   const dashing = RUN.dashT > 0;
   RUN.dashT = Math.max(0, RUN.dashT - ts);
+  // a dash that would end above a hole carries on until there is floor again
+  if (dashing && RUN.dashT === 0 && (RUN.dashExt || 0) < 0.8 && stackAt(seg, Math.round(RUN.s + 0.5)) === -Infinity) { RUN.dashT = 0.04; RUN.dashExt = (RUN.dashExt || 0) + 0.04; }
   RUN.dash = Math.min(1, RUN.dash + dt / 2.2);
   const adv = RUN.speed * (dashing ? 2.4 : 1) * ts;
   RUN.s += adv; RUN.dist += adv;
@@ -2149,7 +2166,10 @@ function runStep(dt) {
 
   // front collision: anything taller than the ball's height ahead
   const kA = Math.round(RUN.s + 0.32);
-  if (stackAt(seg, kA) > RUN.y + 0.32) {
+  const hA = stackAt(seg, kA);
+  // small ledges (landing a bit short, sinking at the end of a dash) are stepped up, not crashed into
+  if (hA > RUN.y + 0.32 && hA - RUN.y <= 0.6) { RUN.y = hA; RUN.vy = Math.max(RUN.vy, 0); RUN.grounded = true; }
+  else if (hA > RUN.y + 0.32) {
     if (!dashing) return runDie('aufgeprallt');
     // dash smashes the column in front
     let broke = 0;
@@ -2159,6 +2179,7 @@ function runStep(dt) {
       if (t === 3 || t === RUN.phase) { RUNMAP.delete(key); RUNREF.delete(key); burst(p, 30, 6, 0.8, 3); broke++; }
     }
     if (broke) {
+      RUN.dashT = Math.max(RUN.dashT, 0.15); // keep going through the next block too
       rebuildBlocks();
       sfx.smash(); vibrate(20);
       kick(0.04, 0.6, 0.1);
