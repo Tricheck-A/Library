@@ -1572,10 +1572,6 @@ function musicTick() {
     music.next += e; music.step++;
   }
 }
-function beatValue() {
-  if (music.on && audio.ctx) return Math.exp(-(((audio.ctx.currentTime - music.t0) * music.bpm / 60) % 1) * 5);
-  return Math.exp(-((U.time.value * music.bpm / 60) % 1) * 5);
-}
 
 /* ---------- run flow ---------- */
 function clearRun() {
@@ -2272,7 +2268,7 @@ function loop() {
   trail.visible = G.mode !== 'title';
 
   const inRun = G.mode === 'run' || G.mode === 'rundying' || G.mode === 'runover' || G.mode === 'runpause';
-  levelU.uBeat.value = inRun ? beatValue() : 0;
+  levelU.uBeat.value = 0; // visuals stay steady; only the music follows the beat
 
   // items
   const t = U.time.value;
@@ -2291,7 +2287,7 @@ function loop() {
   updateParticles(dt);
   if (inRun) {
     runFrame(G.mode === 'runpause' ? 0 : dt);
-    camera.fov = 66 + (RUN.speed - 8) * 0.9 - (1 - RUN.timeScale) * 10 + fx.fovKick + levelU.uBeat.value * 1.2;
+    camera.fov = 66 + (RUN.speed - 8) * 0.9 - (1 - RUN.timeScale) * 10 + fx.fovKick;
   } else {
     cameraTarget(dt);
     camera.fov = 62 + fx.fovKick + G.overview * 4;
