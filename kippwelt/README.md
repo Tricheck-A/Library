@@ -7,7 +7,7 @@ Mobiles Ein-Daumen-Spiel im Stil der Gestenwelten mit zwei Modi:
 
 Die Mechaniken sind von Kula World, Subway Surfers, Temple Run und Geometry Dash inspiriert. Levels, Strecken-Generator, Grafik und die Phasenmechanik sind eigene Entwürfe.
 
-Stack: Three.js 0.170 (Shader für Blöcke, Kugel, Hintergründe), GSAP 3.12 (Bewegungen, Kamera, Übergänge), Anime.js 4 (Daumen-Feedback, HUD, Menüs), Web Audio (Synth-Sounds). Kein Build-Schritt.
+Stack: Three.js 0.170 (Shader für Blöcke, Kugel, Hintergründe), GSAP 3.12 (Bewegungen, Kamera, Übergänge), Anime.js 4 (Daumen-Feedback, HUD, Menüs), Web Audio (Samples und Musik aus `audio/`, Synth als Rückfall). Kein Build-Schritt.
 
 ## Starten
 
@@ -57,6 +57,10 @@ Tastatur: Pfeile oder WASD, Leertaste springt, Shift zeigt die Übersicht, Esc p
 * **II · senke** (Gravitationstrichter folgt der Kugel): phase, turm, kehle
 
 Phasenblöcke (gepunktet / schraffiert) sind nur in ihrer Phase fest. Stacheln sind entweder fest oder fahren im 2,4-Sekunden-Takt aus und ein. Pro Level gibt es drei Rauten: Ausgang erreicht, alle Splitter, ohne Sturz.
+
+## Musik und Sounds
+
+Wie bei Geometry Dash, das Songs von Newgrounds-Künstlern lizenziert, stammt die Musik von unabhängigen Künstlern, hier ausschließlich unter CC0: Komiku und Loyalty Freak Music (Free Music Archive), Effekte aus Kenneys „Digital Audio“, Jingles von Beatscribe. Jede Welt hat ihren Song, jeder Lauf startet ihn von vorn, beim Tod bricht er ab, beim Biomwechsel blendet er über, in der Bullet Time sinkt er in Tonhöhe und klingt dumpf. Details und Quellen: `audio/CREDITS.md`.
 
 ## Dateien
 
