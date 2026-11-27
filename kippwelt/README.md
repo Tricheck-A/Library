@@ -29,7 +29,11 @@ python3 -m http.server 8080
 | Halten | Bullet Time, solange die Fokus-Leiste reicht |
 | Pfeil in der Bildmitte | in Pfeilrichtung wischen, um abzubiegen |
 
-Hindernisse: Blöcke und Türme, Stacheln, Lücken, Schieber (gleiten über die Spuren), tiefe Laser (drüberspringen), hohe Laser (am Boden bleiben), Phasenringe. Kippring um den Balken: kippt dich auf die Gegenseite. Ikosaeder: Sog, zieht 8 s lang Splitter an.
+Hindernisse: Blöcke und Türme, Stacheln, Lücken, Schieber (gleiten über die Spuren), tiefe Laser (drüberspringen), hohe Laser (am Boden bleiben), Stampfer (fallen in eine Spur und heben sich), Bröckelboden (markierte Spur bricht kurz vorher weg), Kipp-Platten (werfen dich auf die Gegenseite), Drehringe (rotierender Blockring um den Balken mit einer Lücke), Phasenringe. Kippring um den Balken: kippt dich auf die Gegenseite. Ikosaeder: Sog, zieht 8 s lang Splitter an.
+
+## Wandlungs-Zonen
+
+Ab 150 m und danach alle 200 bis 320 m verwandelt sich die Welt für etwa 150 m: **Spirale** (Strecke, Schacht und Hintergrund drehen sich korkenzieherartig um die Bahn), **Trichter** (die Strecke stürzt vor dir in eine Senke), **Welle**, **Schlange** und **Negativ** (alles invertiert). Später kombinieren sich Zonen. Die Verformung wirkt nur vor der Kugel und glättet sich beim Näherkommen, rund um die Kugel bleibt alles flach und spielbar. Technisch ist das eine gemeinsame Vertex-Funktion `warpRun`, die alle Shader und auch die eingebauten Materialien nutzen.
 
 ## Effekte
 

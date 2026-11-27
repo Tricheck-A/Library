@@ -35,11 +35,11 @@ const post = {
 post.mat = new THREE.ShaderMaterial({
   uniforms: {
     tScene: { value: null }, tPrev: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uTime: { value: 0 },
-    uCA: { value: 0 }, uBlur: { value: 0 }, uAfter: { value: 0 }, uFlash: { value: 0 }, uVig: { value: 0.55 }, uCenter: { value: new THREE.Vector2(0.5, 0.52) },
+    uCA: { value: 0 }, uBlur: { value: 0 }, uAfter: { value: 0 }, uFlash: { value: 0 }, uVig: { value: 0.55 }, uInvert: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.52) },
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: /* glsl */`
-    uniform sampler2D tScene, tPrev; uniform vec2 uRes, uCenter; uniform float uTime, uCA, uBlur, uAfter, uFlash, uVig;
+    uniform sampler2D tScene, tPrev; uniform vec2 uRes, uCenter; uniform float uTime, uCA, uBlur, uAfter, uFlash, uVig, uInvert;
     varying vec2 vUv;
     vec3 ca(vec2 uv, vec2 d){
       return vec3(texture2D(tScene, uv + d * uCA).r, texture2D(tScene, uv).g, texture2D(tScene, uv - d * uCA).b);
@@ -53,8 +53,9 @@ post.mat = new THREE.ShaderMaterial({
         for (int i = 0; i < 6; i++) col += ca(vUv - d * uBlur * float(i) * 0.022, d);
         col /= 6.0;
       } else col = ca(vUv, d);
+      col = mix(col, 1.0 - col, uInvert);
       float vig = smoothstep(1.15, 0.3, length(d * vec2(uRes.x / uRes.y, 1.0)));
-      col *= mix(1.0, vig, uVig);
+      col *= mix(1.0, vig, uVig * (1.0 - uInvert * 0.7));
       col += (hash(vUv * uRes + fract(uTime) * 91.0) - 0.5) * 0.04;
       if (uAfter > 0.01) col = max(col, texture2D(tPrev, vUv).rgb * uAfter - 0.035);
       gl_FragColor = vec4(col + uFlash, 1.0);
@@ -99,6 +100,30 @@ function renderFrame(ca, blur, after, flash) {
 window.addEventListener('resize', resize);
 resize();
 
+// World warp for the runner's transformation zones (spiral, funnel, wave, snake).
+// Everything ahead of the ball bends; around the ball the world stays flat and playable.
+const WARP = {
+  uAxisO: { value: new THREE.Vector3() }, uDir: { value: new THREE.Vector3() }, uUp: { value: new THREE.Vector3(0, 1, 0) },
+  uTwist: { value: 0 }, uCurve: { value: 0 }, uWave: { value: 0 }, uSnake: { value: 0 }, uWTime: U.time,
+};
+const WARP_DECL = 'uniform vec3 uAxisO, uDir, uUp; uniform float uTwist, uCurve, uWave, uSnake, uWTime;\n';
+const WARP_FN = /* glsl */`
+vec3 warpRun(vec3 w){
+  vec3 rel = w - uAxisO;
+  float a = dot(rel, uDir);
+  float t = max(a, 0.0);
+  float f = smoothstep(4.0, 24.0, t);
+  if (abs(uTwist) > 0.0001) {
+    vec3 along = uDir * a, rad = rel - along;
+    float ang = uTwist * t * f;
+    rel = along + rad * cos(ang) + cross(uDir, rad) * sin(ang);
+  }
+  rel -= uUp * uCurve * t * t * f;
+  rel += uUp * uWave * 1.8 * sin(t * 0.32 - uWTime * 2.2) * f;
+  rel += cross(uDir, uUp) * uSnake * 3.0 * sin(t * 0.16 - uWTime * 1.3) * f;
+  return uAxisO + rel;
+}
+`;
 const GLSL = /* glsl */`
 float hash11(float p){ p = fract(p * .1031); p *= p + 33.33; p *= p + p; return fract(p); }
 float hash31(vec3 p){ p = fract(p * .3183099 + .1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -110,7 +135,7 @@ float vnoise(vec3 x){
 float fbm(vec3 p){ return .6 * vnoise(p) + .3 * vnoise(p * 2.03 + 1.7) + .1 * vnoise(p * 4.1 + 3.1); }
 mat2 rot2(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 float ease3(float x){ x = clamp(x, 0.0, 1.0); return x * x * (3.0 - 2.0 * x); }
-`;
+` + WARP_DECL + WARP_FN;
 const shader = (uniforms, vs, fs, opts = {}) =>
   new THREE.ShaderMaterial({ uniforms, vertexShader: GLSL + vs, fragmentShader: GLSL + fs, ...opts });
 const ADD = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
@@ -120,7 +145,7 @@ const ADD = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlen
 /* ------------------------------------------------------------------ */
 const bgPulse = [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, -100, 0));
 let bgPi = 0;
-const bgU = { uTime: U.time, uPx: U.px, uPulse: { value: bgPulse }, uWell: { value: new THREE.Vector3() }, uBgReveal: { value: 0 }, uFollow: { value: new THREE.Vector2() }, uBeat: { value: 0 } };
+const bgU = { uTime: U.time, uPx: U.px, uPulse: { value: bgPulse }, uWell: { value: new THREE.Vector3() }, uBgReveal: { value: 0 }, uFollow: { value: new THREE.Vector2() }, uBeat: { value: 0 }, ...WARP };
 function bgEvent(pos, amp) { bgPulse[bgPi++ % 4].set(pos.x, pos.z, U.time.value, amp); }
 
 function stars() {
@@ -186,7 +211,8 @@ function hexBackground() {
       float bottom = h - 20.0;
       vec3 wp = vec3(aOff.x + position.x * 0.94, mix(bottom, h, position.y) - 17.0, aOff.y + position.z * 0.94);
       vE = aE; vH = h - bottom; vY = mix(bottom, h, position.y); vTop = h; vSeed = aSeed;
-      vec4 mv = modelViewMatrix * vec4(wp, 1.0);
+      vec4 wq4 = modelMatrix * vec4(wp, 1.0); wq4.xyz = warpRun(wq4.xyz);
+      vec4 mv = viewMatrix * wq4;
       vFog = exp(-(-mv.z) * 0.028) * uBgReveal;
       gl_Position = projectionMatrix * mv;
     }`, /* glsl */`
@@ -233,7 +259,8 @@ function wellBackground() {
       float h1 = hash11(aSeed * 113.0), h2 = hash11(aSeed * 57.0 + 1.3);
       if (position.y > 0.5) y += (h1 - 0.5) * 12.0;
       float rv = ease3(uBgReveal * 1.7 - h2 * 0.7);
-      vec4 mv = modelViewMatrix * vec4(p.x, y - 15.0 - (1.0 - rv) * 30.0, p.y, 1.0);
+      vec4 wq4 = modelMatrix * vec4(p.x, y - 15.0 - (1.0 - rv) * 30.0, p.y, 1.0); wq4.xyz = warpRun(wq4.xyz);
+      vec4 mv = viewMatrix * wq4;
       float depth = max(-mv.z, 0.5);
       gl_PointSize = min(3.0 * uPx * (0.5 + h1 * 0.9) * (26.0 / depth), 18.0 * uPx);
       float tw = 0.35 + 0.65 * step(0.45, fract(h2 * 17.0 + uTime * (0.6 + h1)));
@@ -247,7 +274,7 @@ function wellBackground() {
   return pts;
 }
 function shaftBackground() {
-  // wireframe shaft (from "schacht") wrapped around the runner track
+  // wireframe shaft (from "schacht") with dotted cubes growing out of its walls
   const W = 7, LEN = 120, pos = [], wrap = [];
   const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
   for (let z = 0; z < LEN; z += 3) for (let k = 0; k < 4; k++) {
@@ -257,27 +284,64 @@ function shaftBackground() {
   for (let w = 0; w < 4; w++) for (let i = 0; i <= 6; i++) {
     const t = -1 + i / 3;
     const xy = [[t, -1], [1, t], [t, 1], [-1, t]][w];
-    pos.push(xy[0] * W, xy[1] * W, 12, xy[0] * W, xy[1] * W, -LEN); wrap.push(0, 0);
+    for (let z = 12; z > -LEN; z -= 6) { pos.push(xy[0] * W, xy[1] * W, z, xy[0] * W, xy[1] * W, z - 6); wrap.push(0, 0); }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('aWrap', new THREE.Float32BufferAttribute(wrap, 1));
-  const u = { uTravel: { value: 0 }, uBgReveal: bgU.uBgReveal, uBeat: bgU.uBeat };
+  const u = { ...WARP, uTravel: { value: 0 }, uBgReveal: bgU.uBgReveal, uBeat: bgU.uBeat, uShow: { value: 0 } };
   const m = shader(u, /* glsl */`
-    attribute float aWrap; uniform float uTravel, uBgReveal, uBeat; varying float vA;
+    attribute float aWrap; uniform float uTravel, uBgReveal, uShow; varying float vA;
     void main(){
       vec3 p = position;
-      if (aWrap > 0.5) p.z = mod(p.z + uTravel, ${'120.0'}) - 108.0;
-      vec4 mv = modelViewMatrix * vec4(p, 1.0);
-      vA = exp(-(-mv.z) * 0.03) * smoothstep(-108.0, -80.0, p.z) * uBgReveal * (aWrap > 0.5 ? 0.6 + uBeat * 0.4 : 0.35);
+      if (aWrap > 0.5) p.z = mod(p.z + uTravel, 120.0) - 108.0;
+      vec4 wq4 = modelMatrix * vec4(p, 1.0); wq4.xyz = warpRun(wq4.xyz);
+      vec4 mv = viewMatrix * wq4;
+      vA = exp(-(-mv.z) * 0.03) * smoothstep(-108.0, -80.0, p.z) * uBgReveal * uShow * (aWrap > 0.5 ? 0.6 : 0.35);
       gl_Position = projectionMatrix * mv;
     }`, /* glsl */`
     varying float vA;
     void main(){ gl_FragColor = vec4(vec3(1.0), vA); }`, ADD);
   const lines = new THREE.LineSegments(g, m);
   lines.frustumCulled = false;
-  lines.userData.u = u;
-  return lines;
+
+  const N = 110, cd = [];
+  for (let i = 0; i < N; i++) cd.push((Math.random() * 4) | 0, Math.round((Math.random() * 2 - 1) * 5) / 6, Math.random() * LEN, 0.8 + Math.random() * Math.random() * 4.5);
+  const cg = new THREE.InstancedBufferGeometry().copy(new THREE.BoxGeometry(1, 1, 1));
+  cg.setAttribute('aC', new THREE.InstancedBufferAttribute(new Float32Array(cd), 4));
+  cg.instanceCount = N;
+  const cm = shader(u, /* glsl */`
+    attribute vec4 aC; uniform float uTravel, uBgReveal, uShow;
+    varying vec2 vUv; varying float vA;
+    void main(){
+      float z = mod(aC.z + uTravel, 120.0) - 108.0;
+      float W = 7.0, cs = 1.1, len = aC.w;
+      vec3 base, tang, nrm;
+      if (aC.x < 0.5)      { base = vec3(aC.y * W, -W, z); tang = vec3(1,0,0); nrm = vec3(0,1,0); }
+      else if (aC.x < 1.5) { base = vec3(W, aC.y * W, z);  tang = vec3(0,1,0); nrm = vec3(-1,0,0); }
+      else if (aC.x < 2.5) { base = vec3(aC.y * W, W, z);  tang = vec3(1,0,0); nrm = vec3(0,-1,0); }
+      else                 { base = vec3(-W, aC.y * W, z); tang = vec3(0,1,0); nrm = vec3(1,0,0); }
+      vec3 p = base + tang * position.x * cs + nrm * (position.y + 0.5) * len + vec3(0.0, 0.0, 1.0) * position.z * cs;
+      vec4 wq4 = modelMatrix * vec4(p, 1.0); wq4.xyz = warpRun(wq4.xyz);
+      vec4 mv = viewMatrix * wq4;
+      vA = exp(-(-mv.z) * 0.028) * smoothstep(-108.0, -80.0, z) * uBgReveal * uShow;
+      vUv = uv;
+      gl_Position = projectionMatrix * mv;
+    }`, /* glsl */`
+    varying vec2 vUv; varying float vA;
+    void main(){
+      float e = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+      float edge = 1.0 - smoothstep(0.035, 0.035 + fwidth(e) * 1.5, e);
+      vec2 g = fract(vUv * 5.0) - 0.5;
+      float dots = 1.0 - smoothstep(0.12, 0.12 + fwidth(g.x) * 2.0, length(g));
+      gl_FragColor = vec4(vec3(max(edge, dots * 0.7) * vA), 1.0);
+    }`);
+  const cubes = new THREE.Mesh(cg, cm);
+  cubes.frustumCulled = false;
+  const grp = new THREE.Group();
+  grp.add(lines, cubes);
+  grp.userData.u = u;
+  return grp;
 }
 const backgrounds = [hexBackground(), wellBackground(), shaftBackground()];
 backgrounds.forEach((b) => { b.visible = false; scene.add(b); });
@@ -288,7 +352,7 @@ backgrounds.slice(0, 2).forEach((b) => bgRoot.add(b)); // the shaft is placed in
 /* ------------------------------------------------------------------ */
 /* Level objects                                                       */
 /* ------------------------------------------------------------------ */
-const levelU = { uTime: U.time, uReveal: { value: 0 }, uPhaseMix: { value: 0 }, uFog: { value: 0.035 }, uBeat: bgU.uBeat, uStyle: { value: 0 }, uDist: { value: 0 }, uRise: { value: 14 } };
+const levelU = { ...WARP, uTime: U.time, uReveal: { value: 0 }, uPhaseMix: { value: 0 }, uFog: { value: 0.035 }, uBeat: bgU.uBeat, uStyle: { value: 0 }, uDist: { value: 0 }, uRise: { value: 14 } };
 const BLOCK_VS = /* glsl */`
   attribute vec3 aPos; attribute float aPhase; attribute float aSeed;
   uniform float uTime, uReveal, uPhaseMix, uFog;
@@ -309,12 +373,14 @@ const RUN_BLOCK_VS = /* glsl */`
   uniform float uTime, uReveal, uPhaseMix, uFog, uDist, uRise, uBeat;
   varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed;
   void main(){
+    vec3 off0 = vec3(0.0);
     float solid = (aPhase < 0.5 || aPhase > 2.5) ? 1.0 : (aPhase < 1.5 ? 1.0 - uPhaseMix : uPhaseMix);
+    if (aPhase > 3.5) { float sh = 0.03 * sin(uTime * 40.0 + aSeed * 30.0); off0 = aOut * sh; }
     float ahead = aTrack - uDist;
     vec3 p = position * mix(0.84, 1.0, ease3(solid));
-    vec3 off = vec3(0.0);
+    vec3 off = off0;
     float sc = 1.0;
-    if (aPhase > 0.5) {
+    if (aPhase > 0.5 && aPhase < 3.5) {
       // obstacles rise out of the beam shortly before you reach them, with overshoot
       float r = 1.0 - smoothstep(uRise, uRise + 12.0, ahead);
       float rr = r + sin(r * 3.14159) * 0.25;
@@ -339,7 +405,7 @@ const RUN_BLOCK_VS = /* glsl */`
     float rv = ease3(uReveal * 1.7 - aSeed * 0.7);
     vec3 wp = aPos + p * sc * mix(0.1, 1.0, rv) + off + vec3(0.0, (1.0 - rv) * (4.0 + aSeed * 9.0), 0.0);
     vUv = uv; vN = normal; vSolid = solid; vPhase = aPhase; vSeed = aSeed;
-    vec4 mv = modelViewMatrix * vec4(wp, 1.0);
+    vec4 mv = viewMatrix * vec4(warpRun(wp), 1.0);
     vFog = exp(-(-mv.z) * uFog) * rv;
     gl_Position = projectionMatrix * mv;
   }`;
@@ -366,7 +432,12 @@ const BLOCK_FS = /* glsl */`
     float edge = 1.0 - smoothstep(0.03, 0.03 + fwidth(e) * 1.5, e);
     float d = max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
     float c;
-    if (vPhase > 2.5) {
+    if (vPhase > 3.5) {
+      // crumbling floor: cracks that flicker
+      float cr = abs(fract((vUv.x * 1.7 + vUv.y * 0.6) * 3.0 + vSeed) - 0.5);
+      float crack = 1.0 - smoothstep(0.03, 0.03 + fwidth(cr) * 1.5, cr);
+      c = max(edge, crack * (0.55 + 0.45 * step(0.5, fract(uTime * 6.0 + vSeed)))) * 0.95 + 0.05;
+    } else if (vPhase > 2.5) {
       float pat = max(ring(d, 0.06), styled(d, vUv));
       c = max(edge, pat * 0.7) * (abs(vN.y) > 0.5 ? 1.0 : 0.85) + 0.14 + edge * uBeat * 0.6;
     } else if (vPhase < 0.5) {
@@ -394,6 +465,23 @@ scene.add(lv.group);
 const black = new THREE.MeshBasicMaterial({ color: 0x000000 });
 const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
 const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true });
+function warpMaterial(m) {
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, WARP);
+    sh.vertexShader = WARP_DECL + WARP_FN + sh.vertexShader.replace('#include <project_vertex>', `
+      vec4 mvPosition = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        mvPosition = instanceMatrix * mvPosition;
+      #endif
+      vec4 wPosW = modelMatrix * mvPosition;
+      wPosW.xyz = warpRun(wPosW.xyz);
+      mvPosition = viewMatrix * wPosW;
+      gl_Position = projectionMatrix * mvPosition;`);
+  };
+  m.customProgramCacheKey = () => 'warp';
+  return m;
+}
+[black, white, lineMat].forEach(warpMaterial);
 const UP = new THREE.Vector3(0, 1, 0);
 const faceQuat = (u) => new THREE.Quaternion().setFromUnitVectors(UP, V(u));
 
@@ -1014,6 +1102,7 @@ function loadLevel(i, { keepDeaths = false } = {}) {
   lv.group.visible = true;
   runGroup.visible = false;
   deco.visible = false;
+  resetWarp();
   levelU.uStyle.value = 0;
   levelU.uFog.value = 0.035;
   const c = G.L.bounds().center;
@@ -1393,7 +1482,7 @@ const faceCell = (seg, k, fi, lane, h = 0) =>
 function occ(p) {
   const t = RUNMAP.get(kv(p));
   if (t === undefined) return false;
-  return t === 0 || t === 3 || t === RUN.phase;
+  return t === 0 || t === 3 || t === 4 || t === RUN.phase;
 }
 const RUNREF = new Map();
 const RUNMETA = new Map(); // cell → [track distance, outward x, y, z] for the shader
@@ -1515,7 +1604,7 @@ const boxEdges = new THREE.EdgesGeometry(boxGeo);
 const laserGeo = new THREE.BoxGeometry(3.3, 0.05, 0.05);
 const laserGlow = new THREE.BoxGeometry(3.3, 0.22, 0.22);
 [boxGeo, boxEdges, laserGeo, laserGlow].forEach((g) => { g.userData.keep = true; });
-const glowMat = new THREE.MeshBasicMaterial({ color: 0xffffff, ...ADD, opacity: 0.18 });
+const glowMat = warpMaterial(new THREE.MeshBasicMaterial({ color: 0xffffff, ...ADD, opacity: 0.18 }));
 // Sweeper: a block sliding back and forth across the three lanes.
 function addSweeper(seg, k, fi) {
   const g = new THREE.Group();
@@ -1539,6 +1628,77 @@ function addLaser(seg, k, fi, high) {
   seg.group.add(g);
   seg.lasers.push({ k, fi, high, mesh: g });
 }
+// Crusher: a block that slams down onto a lane and lifts again.
+const CRUSH_T = 1.7;
+function crusherH(cr) {
+  const p = (U.time.value / CRUSH_T + cr.ph) % 1;
+  if (p < 0.12) return 3 * (1 - (p / 0.12) ** 2);
+  if (p < 0.4) return 0;
+  if (p < 0.8) return 3 * ease((p - 0.4) / 0.4);
+  return 3;
+}
+const ease = (x) => x * x * (3 - 2 * x);
+function addCrusher(seg, k, fi, lane) {
+  const g = new THREE.Group();
+  const block = new THREE.Group();
+  const core = new THREE.Mesh(boxGeo, white); core.scale.setScalar(0.35);
+  block.add(new THREE.Mesh(boxGeo, black), new THREE.LineSegments(boxEdges, lineMat), core);
+  const rod = new THREE.Group();
+  rod.add(new THREE.Mesh(boxGeo, black), new THREE.LineSegments(boxEdges, lineMat));
+  rod.scale.set(0.16, 6, 0.16);
+  g.add(block, rod);
+  g.quaternion.copy(frameQuat(seg.d, faceN(seg.d, fi)));
+  seg.group.add(g);
+  seg.crushers.push({ k, fi, lane, ph: Math.random(), mesh: g, block, rod, alive: true });
+}
+// Crumbling floor: a marked lane that breaks away just before you get there.
+function addCrumble(seg, k, fi, lane, len = 3) {
+  const n = faceN(seg.d, fi);
+  for (let q = k; q < k + len; q++) setCell(seg, faceCell(seg, q, fi, lane), 4, seg.start + q, n);
+  seg.crumbles.push({ k, fi, lane, len, done: false });
+}
+// Flip tile: roll over it and you are thrown to the opposite side of the beam.
+function addFlip(seg, k, fi, lane) {
+  const n = faceN(seg.d, fi);
+  const pts = [];
+  for (let i = 0; i < 2; i++) for (let j = 0; j < 14; j++) {
+    const a0 = i * Math.PI + (j / 16) * Math.PI, a1 = i * Math.PI + ((j + 1) / 16) * Math.PI;
+    pts.push(Math.cos(a0) * 0.3, 0.02, Math.sin(a0) * 0.3, Math.cos(a1) * 0.3, 0.02, Math.sin(a1) * 0.3);
+  }
+  for (const i of [0, 1]) { const a = i * Math.PI + (14 / 16) * Math.PI, x = Math.cos(a) * 0.3, z = Math.sin(a) * 0.3; pts.push(x, 0.02, z, x + 0.1, 0.02, z - 0.08 * (i ? -1 : 1), x, 0.02, z, x - 0.1, 0.02, z - 0.06 * (i ? -1 : 1)); }
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  const m = new THREE.Group();
+  m.add(new THREE.LineSegments(gg, lineMat), new THREE.LineSegments(padGeo, lineMat));
+  m.quaternion.copy(frameQuat(seg.d, n));
+  m.position.copy(faceCell(seg, k, fi, lane)).addScaledVector(n, 0.5);
+  seg.group.add(m);
+  seg.flips.push({ k, fi, lane, used: false, mesh: m });
+}
+// Spinning ring of blocks around the whole beam, with one gap to slip through.
+function addRing(seg, k) {
+  const g = new THREE.Group();
+  const spin = new THREE.Group();
+  const gap = (Math.random() * 12) | 0;
+  const angles = [];
+  for (let j = 0; j < 12; j++) {
+    if ((j - gap + 12) % 12 < 3) continue;
+    const a = (j / 12) * Math.PI * 2;
+    const b = new THREE.Group();
+    const core = new THREE.Mesh(boxGeo, white); core.scale.setScalar(0.3);
+    b.add(new THREE.Mesh(boxGeo, black), new THREE.LineSegments(boxEdges, lineMat), core);
+    b.scale.setScalar(0.85);
+    b.position.set(Math.cos(a) * 2.2, Math.sin(a) * 2.2, 0);
+    b.rotation.z = a;
+    spin.add(b);
+    angles.push(a);
+  }
+  g.add(spin);
+  g.quaternion.copy(frameQuat(seg.d, Y));
+  g.position.copy(seg.o).addScaledVector(seg.d, k);
+  seg.group.add(g);
+  seg.rings.push({ k, angles, spin, mesh: g, w: (Math.random() < 0.5 ? -1 : 1) * (0.7 + Math.random() * 0.4), ph: Math.random() * 6.28, alive: true });
+}
 const pickLane = () => [-1, 0, 1][(Math.random() * 3) | 0];
 function weighted(list) {
   const total = list.reduce((s, [w]) => s + Math.max(0, w), 0);
@@ -1549,7 +1709,10 @@ function weighted(list) {
 // Every face pattern is beatable on its own face, so staying on one side is always possible.
 function facePattern(seg, k, fi, D) {
   const fn = weighted([
-    [3 - 2 * D, () => { shardLine(seg, k, fi, pickLane(), 4); return 0; }],
+    [1.6 - 1.2 * D, () => { shardLine(seg, k, fi, pickLane(), 4); return 0; }],
+    [0.5 + D * 1.2, () => { const l = pickLane(); addCrusher(seg, k, fi, l); return 0; }],
+    [0.7 + D * 0.8, () => { const l = pickLane(); addCrumble(seg, k, fi, l, 3); if (Math.random() < D) addCrumble(seg, k, fi, l === 0 ? 1 : 0, 3); shardLine(seg, k, fi, l, 3, 0.2); return 3; }],
+    [0.6 + D * 0.6, () => { addFlip(seg, k, fi, pickLane()); [-1, 0, 1].forEach((l) => addSpike(seg, k + 3, fi, l)); return 3; }],
     [2, () => { const l = pickLane(); addObstacle(seg, k, fi, l, 1); shardLine(seg, k - 1, fi, l === 0 ? 1 : 0, 3); return 0; }],
     [0.8 + 2 * D, () => { const free = pickLane(); [-1, 0, 1].forEach((l) => l !== free && addObstacle(seg, k, fi, l, 1)); shardLine(seg, k - 1, fi, free, 3); return 0; }],
     [1.6, () => { [-1, 0, 1].forEach((l) => addObstacle(seg, k, fi, l, 1 + (D > 0.5 && Math.random() < 0.3 ? 0 : 0))); shardLine(seg, k, fi, pickLane(), 2, 1); return 1; }],
@@ -1581,7 +1744,7 @@ function makeSeg(prev) {
   if (prev && prev.turn === turn && prev.prevTurn === turn) turn = turn === 'left' ? 'right' : 'left';
   const seg = {
     id: RUN.nextId++, o, d, r: new THREE.Vector3().crossVectors(d, Y), L, turn, prevTurn: prev ? prev.turn : null,
-    cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], group: new THREE.Group(), start: RUN.genDist,
+    cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], crushers: [], crumbles: [], flips: [], rings: [], group: new THREE.Group(), start: RUN.genDist,
   };
   for (let k = prev ? 1 : -8; k <= L; k++) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
     if (i || j) setCell(seg, o.clone().addScaledVector(d, k).addScaledVector(Y, i).addScaledVector(seg.r, j), 0, RUN.genDist + k, Y.clone().multiplyScalar(i).addScaledVector(seg.r, j).normalize());
@@ -1592,6 +1755,7 @@ function makeSeg(prev) {
     let extra = 0;
     const g = Math.random();
     if (g < 0.045 + dd * 0.03) { addPortal(seg, k); extra = 3; }
+    else if (dd > 0.2 && g < 0.1 + dd * 0.06) { addRing(seg, k); extra = 2; }
     else if (g < 0.18 + dd * 0.1) {
       const p = Math.random() < 0.5 ? 1 : 2;
       for (let fi = 0; fi < 4; fi++) for (let l = -1; l <= 1; l++) for (let h = 1; h <= 2; h++) setCell(seg, faceCell(seg, k, fi, l, h), p, seg.start + k, faceN(seg.d, fi));
@@ -1600,7 +1764,7 @@ function makeSeg(prev) {
       for (let fi = 0; fi < 4; fi++) extra = Math.max(extra, facePattern(seg, k, fi, dd));
       if (Math.random() < 0.06) addSog(seg, k + 3, (Math.random() * 4) | 0, pickLane());
     }
-    k += Math.round(Math.max(7, speedAt(seg.start + k) * 0.62 + 3) + extra);
+    k += Math.round(Math.max(6, speedAt(seg.start + k) * 0.55 + 2.5) + extra);
   }
   if (seg.shards.length) {
     const im = new THREE.InstancedMesh(shardGeo, white, seg.shards.length);
@@ -1681,9 +1845,10 @@ function startRun() {
   Object.assign(RUN, {
     si: 0, s: 0, fi: 0, lane: 0, uT: 0, uV: 0, y: 0, vy: 0, prevY: 0, grounded: true, speed: 8, dist: 0, genDist: 0,
     shards: 0, phase: 1, turnQueued: false, sog: 0, focus: 1, timeScale: 1, slow: false, jumpBuf: 0,
-    moment: 1, dash: 1, dashT: 0, slam: false,
+    moment: 1, dash: 1, dashT: 0, slam: false, zone: null, nextZone: 150,
   });
   gsap.killTweensOf(RUN);
+  resetWarp();
   RUN.offset.set(0, 0, 0);
   manageSegs();
   lv.group.visible = false;
@@ -1854,6 +2019,41 @@ function wallAhead() {
   }
   return false;
 }
+const ZONES = ['spirale', 'trichter', 'welle', 'schlange', 'negativ'];
+function tweenWarp(t, d) {
+  ['uTwist', 'uCurve', 'uWave', 'uSnake'].forEach((k) => gsap.to(WARP[k], { value: t[k] || 0, duration: d, ease: 'sine.inOut', overwrite: true }));
+}
+function resetWarp() {
+  ['uTwist', 'uCurve', 'uWave', 'uSnake'].forEach((k) => { gsap.killTweensOf(WARP[k]); WARP[k].value = 0; });
+  gsap.killTweensOf(post.mat.uniforms.uInvert);
+  post.mat.uniforms.uInvert.value = 0;
+  WARP.uDir.value.set(0, 0, 0);
+}
+function startZone() {
+  let type;
+  do type = ZONES[(Math.random() * ZONES.length) | 0]; while (type === RUN.lastZone);
+  RUN.lastZone = type;
+  RUN.zone = { type, end: RUN.dist + 150 + Math.random() * 60 };
+  const D = Math.min(1, RUN.dist / 1800);
+  const t = {};
+  if (type === 'spirale') t.uTwist = (Math.random() < 0.5 ? -1 : 1) * (0.045 + 0.025 * D);
+  if (type === 'trichter') t.uCurve = 0.005 + 0.003 * D;
+  if (type === 'welle') t.uWave = 1;
+  if (type === 'schlange') t.uSnake = 1;
+  if (type === 'negativ') { t.uTwist = 0.012; gsap.to(post.mat.uniforms.uInvert, { value: 1, duration: 0.5, ease: 'power2.inOut' }); }
+  if (D > 0.45 && type !== 'negativ' && Math.random() < 0.5) t.uWave = Math.max(t.uWave || 0, 0.6); // later zones combine
+  tweenWarp(t, 3);
+  toast(type);
+  wipe(1);
+  kick(0.05, 0.8, 0.12);
+  bgEvent(vis.pos, 2.5);
+}
+function endZone() {
+  tweenWarp({}, 3);
+  gsap.to(post.mat.uniforms.uInvert, { value: 0, duration: 0.6, ease: 'power2.inOut' });
+  RUN.zone = null;
+  RUN.nextZone = RUN.dist + 200 + Math.random() * 120;
+}
 function runInput(dir) {
   if (G.mode !== 'run') return;
   if (dir === 'tap' || dir === 'up') {
@@ -1967,6 +2167,55 @@ function runStep(dt) {
   }
   if (RUN.y < -2.4) return runDie(RUN.s > seg.L + 0.5 ? 'kurve verpasst' : 'abgestürzt');
 
+  for (const cr of seg.crushers) {
+    if (!cr.alive || cr.fi !== RUN.fi || cr.lane !== RUN.lane || Math.abs(RUN.s - cr.k) > 0.55) continue;
+    const h = crusherH(cr);
+    if (RUN.y < h + 1 && RUN.y + 0.64 > h) {
+      if (!dashing) return runDie('zerquetscht');
+      cr.alive = false; cr.mesh.visible = false;
+      burst(cr.block.getWorldPosition(new THREE.Vector3()), 50, 6, 0.8, 3); sfx.smash(); kick(0.04, 0.6, 0.1);
+    }
+  }
+  for (const cb of seg.crumbles) {
+    if (cb.done || cb.k - RUN.s > 4 + RUN.speed * 0.12) continue;
+    cb.done = true;
+    const n = faceN(seg.d, cb.fi);
+    for (let q = cb.k; q < cb.k + cb.len; q++) {
+      const p = faceCell(seg, q, cb.fi, cb.lane), key = kv(p);
+      RUNMAP.delete(key); RUNREF.delete(key); RUNMETA.delete(key);
+      const chunk = new THREE.Group();
+      chunk.add(new THREE.Mesh(boxGeo, black), new THREE.LineSegments(boxEdges, lineMat));
+      chunk.position.copy(p);
+      scene.add(chunk);
+      const to = p.clone().addScaledVector(n, -6 - Math.random() * 4);
+      gsap.to(chunk.position, { x: to.x, y: to.y, z: to.z, duration: 1.1, delay: (q - cb.k) * 0.06, ease: 'power2.in' });
+      gsap.to(chunk.rotation, { x: Math.random() * 3, z: Math.random() * 3, duration: 1.1, delay: (q - cb.k) * 0.06 });
+      gsap.to(chunk.scale, { x: 0, y: 0, z: 0, duration: 1.1, delay: (q - cb.k) * 0.06, ease: 'power2.in', onComplete: () => scene.remove(chunk) });
+      burst(p, 8, 2, 0.5, 2);
+    }
+    rebuildBlocks();
+    sfx.smash();
+  }
+  if (RUN.grounded && RUN.y < 0.05) for (const fl of seg.flips) {
+    if (fl.used || fl.fi !== RUN.fi || fl.lane !== RUN.lane || Math.abs(RUN.s - fl.k) > 0.5) continue;
+    fl.used = true;
+    RUN.fi += 2; RUN.uT += 6; RUN.vy = 4; RUN.grounded = false;
+    sfx.portal(); vibrate([10, 30, 10]); toast('gekippt');
+    kick(0.04, 0.5, 0.1); bgEvent(vis.pos, 2);
+    gsap.fromTo(fx, { fovKick: 12 }, { fovKick: 0, duration: 0.8, ease: 'expo.out' });
+    break;
+  }
+  for (const rg of seg.rings) {
+    if (!rg.alive || Math.abs(RUN.s - rg.k) > 0.45 || RUN.y > 1.0) continue;
+    const rel = vis.pos.clone().sub(rg.mesh.position);
+    const th = Math.atan2(rel.dot(Y), rel.dot(seg.r));
+    const phi = rg.spin.rotation.z;
+    const hit = rg.angles.some((a) => { let dd = th - (a + phi); dd = Math.atan2(Math.sin(dd), Math.cos(dd)); return Math.abs(dd) < 0.34; });
+    if (!hit) continue;
+    if (!dashing) return runDie('drehring');
+    rg.alive = false; rg.mesh.visible = false;
+    burst(rg.mesh.position, 90, 7, 1, 3); sfx.smash(); kick(0.05, 0.8, 0.15);
+  }
   for (const sw of seg.sweepers) {
     if (!sw.alive || sw.fi !== RUN.fi || Math.abs(RUN.s - sw.k) > 0.6 || RUN.y > 0.85) continue;
     if (Math.abs(sw.x - RUN.lane) > 0.72) continue;
@@ -2041,6 +2290,8 @@ function runStep(dt) {
 
   const b = Math.floor(RUN.dist / BIOME_LEN);
   if (b !== RUN.biome) setBiome(b, true);
+  if (!RUN.zone && RUN.dist > RUN.nextZone) startZone();
+  else if (RUN.zone && RUN.dist > RUN.zone.end) endZone();
   if (RUN.s > seg.L * 0.5) manageSegs();
 }
 
@@ -2077,7 +2328,7 @@ function runCamera(dt) {
 const deco = new THREE.Group();
 deco.visible = false;
 scene.add(deco);
-const decoU = { uTime: U.time, uTravel: { value: 0 }, uPx: U.px, uLen: { value: 1 }, uLineA: { value: 0 }, uBeat: bgU.uBeat };
+const decoU = { ...WARP, uTime: U.time, uTravel: { value: 0 }, uPx: U.px, uLen: { value: 1 }, uLineA: { value: 0 }, uBeat: bgU.uBeat };
 (() => {
   // tumbling patterned cubes drifting around the beam
   const N = 70, d = [];
@@ -2096,7 +2347,8 @@ const decoU = { uTime: U.time, uTravel: { value: 0 }, uPx: U.px, uLen: { value: 
       p.xy = rot2(uTime * (0.3 + aD.w)) * p.xy;
       p.yz = rot2(uTime * 0.7 * aD.w + aD.w * 9.0) * p.yz;
       vUv = uv; vN = normal;
-      vec4 mv = modelViewMatrix * vec4(c + p, 1.0);
+      vec4 wq4 = modelMatrix * vec4(c + p, 1.0); wq4.xyz = warpRun(wq4.xyz);
+      vec4 mv = viewMatrix * wq4;
       vA = exp(-(-mv.z) * 0.025) * smoothstep(86.0, 64.0, along) * smoothstep(0.0, 8.0, along);
       if (vA < 0.01) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
       gl_Position = projectionMatrix * mv;
@@ -2131,7 +2383,8 @@ const decoU = { uTime: U.time, uTravel: { value: 0 }, uPx: U.px, uLen: { value: 
       float along = mod(aL.z - uTravel * 1.6, 60.0) - 6.0;
       vec3 p = vec3(cos(aL.x) * aL.y, sin(aL.x) * aL.y, -along + aL.w * uLen);
       vA = uLineA * (1.0 - aL.w * 0.8) * smoothstep(54.0, 40.0, along) * smoothstep(-6.0, -2.0, along);
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      vec4 wq4 = modelMatrix * vec4(p, 1.0); wq4.xyz = warpRun(wq4.xyz);
+      gl_Position = projectionMatrix * viewMatrix * wq4;
     }`, /* glsl */`
     varying float vA;
     void main(){ gl_FragColor = vec4(vec3(1.0), vA); }`, ADD);
@@ -2153,6 +2406,14 @@ function runFrame(dt) {
   else bgRoot.position.set(Math.round(vis.pos.x / 2) * 2, 0, Math.round(vis.pos.z / 2) * 2);
   const shaft = backgrounds[2];
   const seg = RUN.segs[RUN.si];
+  if (WARP.uDir.value.lengthSq() < 0.5) WARP.uDir.value.copy(seg.d);
+  WARP.uDir.value.lerp(seg.d, 1 - Math.exp(-dt * 5)).normalize();
+  WARP.uAxisO.value.copy(seg.o).addScaledVector(seg.d, RUN.s);
+  WARP.uUp.value.lerp(_ru.set(0, 1, 0).applyQuaternion(vis.frame), 1 - Math.exp(-dt * 4)).normalize();
+  const wantShaft = bio.bg === 2 || (RUN.zone && RUN.zone.type === 'spirale') ? 1 : 0;
+  const su = shaft.userData.u.uShow;
+  su.value += (wantShaft - su.value) * (1 - Math.exp(-dt * 1.5));
+  shaft.visible = su.value > 0.01;
   shaft.position.copy(seg.o).addScaledVector(seg.d, RUN.s);
   shaft.quaternion.copy(frameQuat(seg.d, Y));
   shaft.userData.u.uTravel.value = RUN.dist;
@@ -2182,6 +2443,15 @@ function runFrame(dt) {
   // items spin
   const t = U.time.value;
   RUN.segs.forEach((sg) => {
+    sg.crushers.forEach((cr) => {
+      const h = crusherH(cr);
+      const n = faceN(sg.d, cr.fi);
+      cr.mesh.position.copy(faceCell(sg, cr.k, cr.fi, cr.lane)).addScaledVector(n, 0.5);
+      cr.block.position.set(0, h + 0.5, 0);
+      cr.rod.position.set(0, h + 1 + 3, 0);
+    });
+    sg.rings.forEach((rg) => { rg.spin.rotation.z = rg.ph + U.time.value * rg.w; });
+    sg.flips.forEach((fl) => { fl.mesh.children[0].rotation.y = -U.time.value * 2; });
     sg.sweepers.forEach((sw) => {
       sw.x = sweeperX(sw);
       const n = faceN(sg.d, sw.fi);
@@ -2407,4 +2677,4 @@ showTitle();
 loop();
 
 // debug / test hook
-window.kippwelt = { music, buffers, audio, G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };
+window.kippwelt = { forceZone: (z) => { RUN.zone = null; const keep = Math.random; let i = 0; Math.random = () => (i++ === 0 ? ZONES.indexOf(z) / ZONES.length + 0.01 : keep()); startZone(); Math.random = keep; }, endZone, music, buffers, audio, G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };
