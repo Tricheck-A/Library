@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--BUILD:HEAD-->
+<title>Kippwelt</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Major+Mono+Display&display=swap">
+<style>
+/* Layout: full-bleed WebGL stage; HUD hugs the top, all play input is the lower thumb zone. */
+:root {
+  --ink: #000000;
+  --paper: #f1f1ec;
+  --dim: #8a8a86;
+  --line: rgba(241, 241, 236, 0.24);
+  --veil: rgba(0, 0, 0, 0.78);
+  --display: "Major Mono Display", "IBM Plex Mono", ui-monospace, monospace;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --gut-l: max(18px, calc(var(--safe-l) + 18px));
+  --gut-r: max(18px, calc(var(--safe-r) + 18px));
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--ink); color: var(--paper); font-family: var(--mono);
+  overflow: hidden; overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  padding-left: max(16px, var(--safe-l)); padding-right: max(16px, var(--safe-r));
+}
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+button { font: inherit; color: inherit; }
+.btn {
+  font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--paper); background: transparent; border: 1px solid var(--line); border-radius: 999px;
+  padding: 11px 16px; cursor: pointer;
+}
+.btn.primary { background: var(--paper); color: var(--ink); border-color: var(--paper); padding: 15px 26px; }
+.btn:focus-visible, .lvl:focus-visible { outline: 1px solid var(--paper); outline-offset: 3px; }
+
+/* ---------- HUD ---------- */
+.hud { position: fixed; left: 0; right: 0; pointer-events: none; z-index: 5; }
+.hud-top {
+  top: 0;
+  padding: calc(var(--safe-t) + 14px) var(--gut-r) 40px var(--gut-l);
+  background: linear-gradient(to bottom, rgba(0,0,0,.88), rgba(0,0,0,.5) 60%, rgba(0,0,0,0));
+  display: grid; gap: 10px;
+}
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lvl-id { font-size: 11px; letter-spacing: .18em; color: var(--dim); }
+.lvl-id b { color: var(--paper); font-weight: 500; }
+#lvlName { margin: 2px 0 0; font: 400 clamp(24px, 7.5vw, 40px)/1 var(--display); }
+#lvlName span, #toast span, .res h2 span { display: inline-block; }
+#pauseBtn { pointer-events: auto; width: 42px; height: 42px; padding: 0; display: grid; place-items: center; }
+#pauseBtn i { display: block; width: 10px; height: 12px; border-left: 2px solid var(--paper); border-right: 2px solid var(--paper); }
+.stats { display: flex; align-items: center; gap: 18px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.keys { display: flex; gap: 7px; }
+.keys i { width: 9px; height: 9px; border: 1px solid var(--paper); transform: rotate(45deg); }
+.keys i.on { background: var(--paper); box-shadow: 0 0 10px rgba(255,255,255,.7); }
+.shards::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 7px; background: var(--paper); transform: rotate(45deg) translateY(-2px); }
+.timer { margin-left: auto; display: grid; gap: 5px; justify-items: end; min-width: 76px; }
+.timer-bar { width: 76px; height: 2px; background: var(--line); }
+.timer-bar i { display: block; height: 100%; background: var(--paper); transform-origin: left; }
+.timer.low { animation: blink .5s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .35; } }
+
+.hud-bottom {
+  bottom: 0;
+  padding: 50px var(--gut-r) calc(var(--safe-b) + 22px) var(--gut-l);
+  background: linear-gradient(to top, rgba(0,0,0,.7), rgba(0,0,0,0));
+  text-align: center;
+}
+#hint { font-size: 12px; letter-spacing: .04em; color: var(--paper); min-height: 1.5em; max-width: 34ch; margin: 0 auto; text-wrap: balance; }
+.zone { margin-top: 10px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); }
+
+#toast {
+  position: fixed; left: 0; right: 0; top: 42%; text-align: center; z-index: 6; pointer-events: none;
+  font: 400 clamp(22px, 7vw, 34px)/1 var(--display); text-shadow: 0 0 10px #000, 0 0 24px #000;
+}
+#fx { position: fixed; inset: 0; pointer-events: none; z-index: 4; overflow: hidden; }
+.touch, .ripple, .arrow { position: absolute; width: 80px; height: 80px; margin: -40px 0 0 -40px; }
+.touch svg, .ripple svg, .arrow svg { width: 100%; height: 100%; overflow: visible; }
+.touch circle, .ripple circle { fill: none; stroke: var(--paper); }
+.touch .base { stroke-width: 1; opacity: .7; }
+.touch .prog { stroke-width: 2; stroke-dasharray: 226.2; stroke-dashoffset: 226.2; transform: rotate(-90deg); transform-origin: 40px 40px; }
+.arrow path { fill: none; stroke: var(--paper); stroke-width: 2; }
+#wipe { position: fixed; inset: 0; z-index: 7; pointer-events: none; background: #fff; mix-blend-mode: difference; clip-path: inset(0 100% 0 0); }
+
+/* ---------- overlays ---------- */
+.overlay {
+  position: fixed; inset: 0; z-index: 10; overflow-y: auto;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  padding: calc(var(--safe-t) + 24px) var(--gut-r) calc(var(--safe-b) + 24px) var(--gut-l);
+}
+#title { background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,.55) 34%, rgba(0,0,0,.95) 70%); }
+#pause, #result { background: var(--veil); justify-content: center; }
+.panel { width: 100%; max-width: 480px; margin: 0 auto; display: grid; gap: 20px; }
+.panel h1, .panel h2 { margin: 0; font-family: var(--display); font-weight: 400; line-height: .95; }
+.panel h1 { font-size: clamp(44px, 14vw, 76px); }
+.panel h2 { font-size: clamp(32px, 10vw, 52px); }
+.panel p { margin: 0; color: var(--dim); font-size: 12px; line-height: 1.6; max-width: 44ch; }
+.worlds { display: grid; gap: 12px; }
+.world-row { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 12px; }
+.world-row > span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.world-row > span b { display: block; color: var(--paper); font: 400 18px/1.1 var(--display); letter-spacing: 0; text-transform: none; }
+.lvls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.lvl {
+  border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 10px 8px; cursor: pointer;
+  display: grid; gap: 4px; text-align: left; min-width: 0;
+}
+.lvl small { font-size: 10px; color: var(--dim); letter-spacing: .1em; }
+.lvl em { font-style: normal; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lvl .stars { font-size: 9px; letter-spacing: .3em; color: var(--dim); }
+.lvl[aria-current="true"] { border-color: var(--paper); }
+.lvl:disabled { opacity: .3; cursor: not-allowed; }
+.controls { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; font-size: 11px; }
+.controls b { font-weight: 500; }
+.controls span { color: var(--dim); }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.res-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.res-stats div { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 4px; }
+.res-stats small { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.res-stats b { font: 400 22px/1 var(--display); font-variant-numeric: tabular-nums; }
+.medals { display: flex; gap: 14px; }
+.medals i { width: 18px; height: 18px; border: 1px solid var(--paper); transform: rotate(45deg); }
+.medals i.on { background: var(--paper); box-shadow: 0 0 14px rgba(255,255,255,.6); }
+.medal-legend { font-size: 10px; color: var(--dim); letter-spacing: .06em; }
+@media (prefers-reduced-motion: reduce) { .timer.low { animation: none; } }
+</style>
+<!--BUILD:HEADEND-->
+</head>
+<body>
+<canvas id="scene" aria-label="Spielfeld"></canvas>
+<div id="fx"></div>
+<div id="wipe"></div>
+
+<header class="hud hud-top" id="hudTop" hidden>
+  <div class="row">
+    <div>
+      <div class="lvl-id"><b id="lvlId">I-1</b> · <span id="worldName">wabe</span></div>
+      <h1 id="lvlName">erste kante</h1>
+    </div>
+    <button class="btn" id="pauseBtn" type="button" aria-label="Pause"><i></i></button>
+  </div>
+  <div class="stats">
+    <div class="keys" id="keys" aria-label="Schlüssel"></div>
+    <div class="shards" id="shards">0/0</div>
+    <div class="timer" id="timer"><span id="timeText">01:30</span><div class="timer-bar"><i id="timeBar"></i></div></div>
+  </div>
+</header>
+<div class="hud hud-bottom" id="hudBottom" hidden>
+  <p id="hint"></p>
+  <div class="zone">Daumenzone · überall wischen</div>
+</div>
+<div id="toast" aria-live="polite"></div>
+
+<section class="overlay" id="title" aria-label="Start">
+  <div class="panel">
+    <h1>kippwelt</h1>
+    <p>Roll die Kugel über schwebende Blöcke. An jeder Kante kippt die Schwerkraft mit. Sammle alle Schlüssel, dann öffnet sich der Ausgang. Gespielt wird mit einem Daumen.</p>
+    <ul class="controls">
+      <li><b>Wisch hoch</b> <span>rollen</span></li>
+      <li><b>Daumen liegen lassen</b> <span>weiterrollen</span></li>
+      <li><b>Wisch links / rechts</b> <span>drehen</span></li>
+      <li><b>Tippen</b> <span>springen</span></li>
+      <li><b>Wisch runter</b> <span>Phase / umdrehen</span></li>
+      <li><b>Halten</b> <span>Übersicht</span></li>
+    </ul>
+    <div class="worlds" id="worldsList"></div>
+    <div class="actions">
+      <button class="btn primary" id="playBtn" type="button">Spielen</button>
+      <button class="btn" id="soundBtn" type="button" aria-pressed="true">Ton an</button>
+    </div>
+  </div>
+</section>
+
+<section class="overlay" id="pause" aria-label="Pause" hidden>
+  <div class="panel">
+    <h2>pause</h2>
+    <div class="actions">
+      <button class="btn primary" id="resumeBtn" type="button">Weiter</button>
+      <button class="btn" id="restartBtn" type="button">Neu starten</button>
+      <button class="btn" id="menuBtn" type="button">Levels</button>
+      <button class="btn" id="soundBtn2" type="button">Ton an</button>
+    </div>
+  </div>
+</section>
+
+<section class="overlay" id="result" aria-label="Level geschafft" hidden>
+  <div class="panel res">
+    <div class="lvl-id"><b id="resId">I-1</b> · geschafft</div>
+    <h2 id="resTitle">erste kante</h2>
+    <div class="res-stats">
+      <div><small>Zeit</small><b id="resTime">0:42</b></div>
+      <div><small>Splitter</small><b id="resShards">5/7</b></div>
+      <div><small>Stürze</small><b id="resDeaths">0</b></div>
+    </div>
+    <div class="medals" id="medals"><i></i><i></i><i></i></div>
+    <div class="medal-legend">Ausgang erreicht · alle Splitter · ohne Sturz</div>
+    <div class="actions">
+      <button class="btn primary" id="nextBtn" type="button">Weiter</button>
+      <button class="btn" id="againBtn" type="button">Nochmal</button>
+      <button class="btn" id="menuBtn2" type="button">Levels</button>
+    </div>
+  </div>
+</section>
+
+<!--BUILD:SCRIPTS-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+  "animejs": "https://cdn.jsdelivr.net/npm/animejs@4.0.2/lib/anime.esm.min.js"
+} }
+</script>
+<script type="module" src="./main.js"></script>
+<!--BUILD:SCRIPTSEND-->
+</body>
+</html>
