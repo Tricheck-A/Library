@@ -14,8 +14,20 @@
   const occM = (p, phase) => {
     const t = K.RUNMAP.get(T.kv(p));
     if (t === undefined || t === 4) return false; // crumbling floor counts as a hole (it will be one)
-    return t === 0 || t === 3 || t === 5 || t === phase;
+    return t === 0 || t === 3 || t === 5 || t === 6 || t === phase;
   };
+  // track-mode surface, mirroring terrainAt / wellDip at a future time
+  function terrM(p, now) {
+    const z = K.zoneAt(p);
+    if (!z || z.mode !== 1) return 0;
+    const a = Math.min(1, Math.max(0, (p - (z.A - 4)) / 14)), c = Math.min(1, Math.max(0, (p - (z.B - 10)) / 14));
+    return 1.1 * (0.5 + 0.5 * Math.sin(p * 0.35 + now * 3.0)) * (a * a * (3 - 2 * a)) * (1 - c * c * (3 - 2 * c));
+  }
+  function dipM(st, seg, k) {
+    let dip = 0;
+    for (const sg of [seg, RUN.segs[st.si + 1]]) if (sg) for (const w of sg.wells) dip -= 0.8 * Math.exp(-T.faceCell(seg, k, st.fi, st.lane).distanceToSquared(w.pos) / 3);
+    return dip;
+  }
   function stackM(st, seg, k, fi, lane) {
     if (!occM(T.faceCell(seg, k, fi, lane), st.phase)) return -Infinity;
     if (st.smashed.has(seg.id + '|' + k + '|' + fi + '|' + lane)) return 0;
@@ -36,6 +48,7 @@
     return {
       si: RUN.si, s: RUN.s, y: RUN.y, vy: RUN.vy, grounded: RUN.grounded, fi: RUN.fi, lane: RUN.lane,
       dashT: RUN.dashT, dash: RUN.dash, dashExt: RUN.dashExt || 0, phase: RUN.phase, dist: RUN.dist, slam: RUN.slam,
+      sink: RUN.sink || 0, boostT: RUN.boostT || 0, prevFloor: RUN.prevFloor || 0, surfV: RUN.surfV || 0,
     };
   }
 
@@ -67,26 +80,46 @@
     st.dashT = Math.max(0, st.dashT - DT);
     st.dash = Math.min(1, st.dash + DT / 2.2);
     if (dashing && st.dashT === 0 && st.dashExt < 0.8 && stackM(st, seg, Math.round(st.s + 0.5), st.fi, st.lane) === -Infinity) { st.dashT = 0.04; st.dashExt += 0.04; }
-    const adv = speed * (dashing ? 2.4 : 1) * DT;
+    const zc = K.zoneAt(seg.start + st.s), mode = zc ? zc.mode : 0;
+    let mult = mode === 3 ? 1.25 : mode === 4 ? (st.sink > 0 ? 0.55 : 1.2) : 1;
+    if (st.boostT > 0) { st.boostT -= DT; mult *= 1.5; }
+    const adv = speed * mult * (dashing ? 2.4 : 1) * DT;
     st.s += adv; st.dist += adv;
     if (st.s >= seg.L) { const nx = RUN.segs[st.si + 1]; const concave = nx && nx.d.dot(T.faceN(seg.d, st.fi)) > 0.5; st.s -= seg.L; st.si++; seg = RUN.segs[st.si]; if (!seg) return null; if (concave) st.s = Math.max(st.s, 1.5 + R + 0.2); }
     st.prevY = st.y;
     if (dashing) st.vy = 0; else st.vy -= T.GRAV * (st.slam ? 2.2 : 1) * DT;
     st.y += st.vy * DT;
     const k = Math.round(st.s);
-    const floor = stackM(st, seg, k, st.fi, st.lane);
+    const now0 = T.U.time.value + t + DT;
+    const onSand = K.RUNMAP.get(T.kv(T.faceCell(seg, k, st.fi, st.lane))) === 6;
+    if (onSand && st.grounded && !dashing) st.sink += DT; else st.sink = 0;
+    if (st.sink > 0.95) return 'versunken';
+    let floor = stackM(st, seg, k, st.fi, st.lane);
+    if (floor !== -Infinity) floor += terrM(seg.start + k, now0) + dipM(st, seg, k) - st.sink;
+    if (st.grounded && floor < st.y - 0.02 && st.surfV > 0.5) { st.vy = st.surfV * 0.9; st.grounded = false; st.y += st.vy * DT; }
+    st.surfV = st.grounded ? (floor - st.prevFloor) / DT : 0;
+    st.prevFloor = floor;
     if (st.vy <= 0 && st.y <= floor && (st.prevY >= floor - 0.05 || st.y > floor - 0.45)) { st.y = floor; st.vy = 0; st.grounded = true; st.slam = false; }
     else if (st.y > floor + 0.02) st.grounded = false;
     const kA = Math.round(st.s + 0.32);
-    const hA = kA >= seg.L - 1 ? Math.min(stackM(st, seg, kA, st.fi, st.lane), 0) : stackM(st, seg, kA, st.fi, st.lane); // turn is always taken
-    if (hA > st.y + 0.32 && hA - st.y <= 0.6) { st.y = hA; st.vy = Math.max(st.vy, 0); st.grounded = true; }
+    let hA = kA >= seg.L - 1 ? Math.min(stackM(st, seg, kA, st.fi, st.lane), 0) : stackM(st, seg, kA, st.fi, st.lane); // turn is always taken
+    if (hA !== -Infinity) hA += terrM(seg.start + kA, now0) + dipM(st, seg, kA);
+    if (hA > st.y + 0.32 && hA - st.y <= (mode ? 1.0 : 0.6)) { st.y = hA; st.vy = Math.max(st.vy, 0); st.grounded = true; }
     else if (hA > st.y + 0.32) {
       if (!dashing) return 'aufgeprallt';
       st.smashed.add(seg.id + '|' + kA + '|' + st.fi + '|' + st.lane);
       st.dashT = Math.max(st.dashT, 0.15);
     }
     if (st.y < -2.4) return 'abgestürzt';
-    const now = T.U.time.value + t + DT; // the game advances the clock before stepping
+    const now = now0; // the game advances the clock before stepping
+    for (const w of seg.wells) {
+      const key = 'w' + seg.id + '|' + w.k + '|' + w.fi;
+      const ahead = w.k - st.s;
+      if (w.pulled || st.flips.has(key) || w.fi !== st.fi || ahead < 1 || ahead > 6 || !st.grounded) continue;
+      st.flips.add(key);
+      if (st.lane !== w.lane) st.lane = w.lane;
+    }
+    if (zc && zc.type === 'fluss' && zc.gateAt && !zc.boosted && !st.boosted && Math.abs(seg.start + st.s - zc.gateAt) < 0.6) { st.boosted = true; st.boostT = 1.2; }
     for (const cr of seg.crushers) {
       if (!cr.alive || cr.fi !== st.fi || cr.lane !== st.lane || !near(st.s, cr.k, 0.55)) continue;
       const h = crusherAt(cr, now);

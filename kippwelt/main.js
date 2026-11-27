@@ -352,12 +352,13 @@ backgrounds.slice(0, 2).forEach((b) => bgRoot.add(b)); // the shaft is placed in
 /* ------------------------------------------------------------------ */
 /* Level objects                                                       */
 /* ------------------------------------------------------------------ */
-const levelU = { ...WARP, uTime: U.time, uReveal: { value: 0 }, uPhaseMix: { value: 0 }, uFog: { value: 0.035 }, uBeat: bgU.uBeat, uStyle: { value: 0 }, uDist: { value: 0 }, uRise: { value: 14 } };
+const levelU = { ...WARP, uZones: { value: [new THREE.Vector4(), new THREE.Vector4()] }, uWells: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) }, uTime: U.time, uReveal: { value: 0 }, uPhaseMix: { value: 0 }, uFog: { value: 0.035 }, uBeat: bgU.uBeat, uStyle: { value: 0 }, uDist: { value: 0 }, uRise: { value: 14 } };
 const BLOCK_VS = /* glsl */`
   attribute vec3 aPos; attribute float aPhase; attribute float aSeed;
   uniform float uTime, uReveal, uPhaseMix, uFog;
-  varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed;
+  varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed, vTr; varying vec2 vZ;
   void main(){
+    vZ = vec2(0.0); vTr = 0.0;
     float solid = (aPhase < 0.5 || aPhase > 2.5) ? 1.0 : (aPhase < 1.5 ? 1.0 - uPhaseMix : uPhaseMix);
     float rv = ease3(uReveal * 1.7 - aSeed * 0.7);
     vec3 p = position * mix(0.84, 1.0, ease3(solid)) * mix(0.1, 1.0, rv);
@@ -371,12 +372,30 @@ const BLOCK_VS = /* glsl */`
 const RUN_BLOCK_VS = /* glsl */`
   attribute vec3 aPos; attribute float aPhase; attribute float aSeed; attribute float aTrack; attribute vec3 aOut;
   uniform float uTime, uReveal, uPhaseMix, uFog, uDist, uRise, uBeat;
-  varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed;
+  uniform vec4 uZones[2]; uniform vec4 uWells[6];
+  varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed, vTr; varying vec2 vZ;
   void main(){
     vec3 off0 = vec3(0.0);
+    // which track mode is this cell in (wogen 1, senke 2, fluss 3, sand 4), and how far into it
+    float zm = 0.0, zf = 0.0;
+    for (int i = 0; i < 2; i++) {
+      vec4 Z = uZones[i];
+      if (Z.z < 0.5) continue;
+      float f = smoothstep(Z.x - 4.0, Z.x + 10.0, aTrack) * (1.0 - smoothstep(Z.y - 10.0, Z.y + 4.0, aTrack));
+      if (f > zf) { zf = f; zm = Z.z; }
+    }
+    vZ = vec2(zm, zf); vTr = aTrack;
+    vec3 outSq = aOut / max(max(abs(aOut.x), abs(aOut.y)), max(abs(aOut.z), 0.001)); // corners move on both faces
+    if (zm > 0.5 && zm < 1.5) off0 += outSq * 1.1 * (0.5 + 0.5 * sin(aTrack * 0.35 + uTime * 3.0)) * zf; // wogen
+    for (int i = 0; i < 6; i++) {
+      vec4 W = uWells[i];
+      if (W.w < 0.5) continue;
+      vec3 dw = aPos - W.xyz;
+      off0 -= outSq * 0.8 * exp(-dot(dw, dw) / 3.0); // senke: cells sink into the gravity well
+    }
     float solid = (aPhase < 0.5 || aPhase > 2.5) ? 1.0 : (aPhase < 1.5 ? 1.0 - uPhaseMix : uPhaseMix);
     if (aPhase > 3.5 && aPhase < 4.5) { float sh = 0.03 * sin(uTime * 40.0 + aSeed * 30.0); off0 = aOut * sh; }
-    if (aPhase > 4.5) off0 = -aOut * 0.22;
+    if (aPhase > 4.5 && aPhase < 5.5) off0 -= aOut * 0.22;
     float ahead = aTrack - uDist;
     vec3 p = position * mix(0.84, 1.0, ease3(solid));
     vec3 off = off0;
@@ -412,7 +431,8 @@ const RUN_BLOCK_VS = /* glsl */`
   }`;
 const BLOCK_FS = /* glsl */`
   uniform float uTime, uBeat, uStyle;
-  varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed;
+  varying vec2 vUv; varying vec3 vN; varying float vSolid, vPhase, vFog, vSeed, vTr; varying vec2 vZ;
+
   float ring(float d, float r){ return 1.0 - smoothstep(0.009, 0.009 + fwidth(d) * 1.3, abs(d - r)); }
   // biome surface styles: 0 concentric squares (wabe), 1 dot grid (senke), 2 fine grid (schacht)
   float stylePat(float st, float d, vec2 uv){
@@ -426,6 +446,29 @@ const BLOCK_FS = /* glsl */`
     float a = floor(uStyle), f = fract(uStyle);
     return mix(stylePat(a, d, uv), stylePat(a + 1.0, d, uv), f);
   }
+  float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  // the look of each track mode
+  float modeLook(float m, float d, float edge, vec2 uv){
+    if (m < 1.5) { // wogen: hex-column feel, brightness rides the wave
+      float wave = 0.5 + 0.5 * sin(vTr * 0.35 + uTime * 3.0);
+      return max(edge, ring(d, 0.3) * 0.6) * (0.45 + 0.75 * wave) + 0.03;
+    }
+    if (m < 2.5) { // senke: point grid
+      vec2 g = fract(uv * 5.0) - 0.5;
+      float dots = 1.0 - smoothstep(0.07, 0.07 + fwidth(g.x) * 2.0, length(g));
+      return dots * (0.55 + 0.45 * step(0.5, fract(hsh(floor(uv * 5.0) + vSeed) * 7.0 + uTime * 0.8))) + edge * 0.2;
+    }
+    if (m < 3.5) { // fluss: field lines with flowing beads
+      vec2 l = abs(fract(uv * 6.0) - 0.5);
+      float line = 1.0 - smoothstep(0.03, 0.03 + fwidth(uv.x) * 6.0, 0.5 - max(l.x, l.y));
+      float bead = pow(fract(vTr * 0.2 - uTime * 1.6 + vSeed), 8.0);
+      return line * (0.35 + bead * 1.2) + edge * 0.25;
+    }
+    // sand: streaming grains
+    vec2 cell = floor(uv * 26.0 + vec2(0.0, uTime * 9.0 + vTr * 6.0));
+    float gr = step(0.58, hsh(cell)) * (0.4 + 0.6 * hsh(cell + 3.1));
+    return gr * 0.85 + edge * 0.12;
+  }
   void main(){
     float ex = min(vUv.x, 1.0 - vUv.x), ey = min(vUv.y, 1.0 - vUv.y);
     float e = min(ex, ey);
@@ -433,7 +476,11 @@ const BLOCK_FS = /* glsl */`
     float edge = 1.0 - smoothstep(0.03, 0.03 + fwidth(e) * 1.5, e);
     float d = max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
     float c;
-    if (vPhase > 4.5) {
+    if (vPhase > 5.5) {
+      // quicksand: dark, slowly swirling grains
+      vec2 cell = floor(vUv * 18.0 + vec2(sin(uTime + vSeed * 6.0) * 2.0, uTime * 2.0));
+      c = step(0.72, hsh(cell)) * 0.5 + edge * 0.35 + 0.02;
+    } else if (vPhase > 4.5) {
       // middle rail between the two lanes: dark groove
       c = edge * 0.3 + 0.015;
     } else if (vPhase > 3.5) {
@@ -459,6 +506,7 @@ const BLOCK_FS = /* glsl */`
         c = max(edge, pat * 0.75) + 0.03;
       }
     }
+    if (vZ.y > 0.01 && vPhase < 5.5) c = mix(c, vPhase > 2.5 && vPhase < 3.5 ? max(c, modeLook(vZ.x, d, edge, vUv)) : modeLook(vZ.x, d, edge, vUv), vZ.y);
     gl_FragColor = vec4(vec3(c * vFog), 1.0);
   }`;
 
@@ -1488,7 +1536,7 @@ const faceCell = (seg, k, fi, lane, h = 0) =>
 function occ(p) {
   const t = RUNMAP.get(kv(p));
   if (t === undefined) return false;
-  return t === 0 || t === 3 || t === 4 || t === 5 || t === RUN.phase;
+  return t === 0 || t === 3 || t === 4 || t === 5 || t === 6 || t === RUN.phase;
 }
 const RUNREF = new Map();
 const RUNMETA = new Map(); // cell → [track distance, outward x, y, z] for the shader
@@ -1737,6 +1785,10 @@ const HINTS = {
   crusher: 'Stampfer: abpassen oder Spur wechseln', crumble: 'Rissiger Boden bricht gleich weg: Spur wechseln', sweeper: 'Schieber: die Lücke abpassen',
   portal: 'Kippring: dreht dich auf die Gegenseite des Balkens', laserHigh: 'Hoher Laser: am Boden bleiben, nicht springen', orb: 'Ring in der Luft: im Sprung nochmal tippen',
   ring: 'Drehring: durch die Lücke rollen oder durchdashen',
+  wogen: 'Wogen: die Strecke wellt sich, Wellenkämme schleudern dich hoch', senke: 'Gravitationssenke: zieht dich in ihre Spur, spring über das Loch',
+  fluss: 'Feldlinien: die Strömung trägt dich, Schienen brechen ab, wechsle im Takt', sand: 'Treibsand: du sinkst ein, spring raus oder wechsle die Spur',
+  schlund: 'Schlund: das Sprungfeld trägt dich hinüber',
+  spirale: 'Spirale: die Welt dreht sich, die Strecke bleibt', schlange: 'Schlange: die Welt windet sich', negativ: 'Negativ: alles invertiert',
   sog: 'Sog: zieht Splitter an', schild: 'Schild: fängt den nächsten Treffer ab', flug: 'Höhenflug: 6 s über allen Hindernissen',
 };
 let seenHints = {};
@@ -1767,6 +1819,44 @@ function facePattern(seg, k, fi, D, dist) {
   return fn();
 }
 
+// Track-mode patterns. Each one is beatable on its own side.
+function modePattern(seg, k, fi, mode, zone) {
+  const n = faceN(seg.d, fi);
+  if (mode === 1) { // wogen: plain obstacles, the wave is the twist
+    const fn = weighted([
+      [2, () => { addObstacle(seg, k, fi, pickLane(), 1); return 0; }],
+      [1.4, () => { ALL.forEach((l) => addObstacle(seg, k, fi, l, 1)); return 1; }],
+      [1.2, () => { const l = pickLane(); addObstacle(seg, k, fi, l, 2); addObstacle(seg, k, fi, 0, 2); return 0; }],
+      [1.5, () => { addGap(seg, k, fi, 2); return 2; }],
+    ]);
+    return fn();
+  }
+  if (mode === 2) { // senke: a gravity well with a hole; it pulls you into its lane
+    const l = pickLane();
+    for (const q of [k, k + 1]) { const key = kv(faceCell(seg, q, fi, l)); RUNMAP.delete(key); }
+    seg.wells.push({ k, fi, lane: l, pos: faceCell(seg, k, fi, l).addScaledVector(seg.d, 0.5), pulled: false });
+    shardArc(seg, k - 2, fi, l, 4);
+    return 3;
+  }
+  if (mode === 3) { // fluss: rails break off on alternating lanes, sometimes both
+    seg.railLane = -(seg.railLane || 1);
+    if (Math.random() < 0.22) { addGap(seg, k, fi, 3); shardArc(seg, k - 1, fi, pickLane(), 4); return 3; }
+    const l = seg.railLane;
+    for (let q = k; q < k + 4; q++) RUNMAP.delete(kv(faceCell(seg, q, fi, l)));
+    shardLine(seg, k, fi, -l, 4);
+    return 2;
+  }
+  // sand: quicksand lanes; at the end the maw, crossed with a launch pad
+  if (zone && seg.start + k > zone.B - 34 && !zone.schlund) {
+    zone.schlundPending = true;
+    return 0;
+  }
+  const l = pickLane();
+  const both = Math.random() < 0.2;
+  for (let q = k; q < k + 4; q++) for (const ll of both ? [-1, 1] : [l]) setCell(seg, faceCell(seg, q, fi, ll), 6, seg.start + q, n);
+  if (!both) shardLine(seg, k, fi, -l, 4);
+  return 2;
+}
 function makeSeg(prev) {
   let o, d;
   if (!prev) { o = new THREE.Vector3(); d = new THREE.Vector3(0, 0, -1); }
@@ -1781,20 +1871,34 @@ function makeSeg(prev) {
   if (prev && prev.turn === turn && prev.prevTurn === turn) turn = turn === 'left' ? 'right' : 'left';
   const seg = {
     id: RUN.nextId++, o, d, r: new THREE.Vector3().crossVectors(d, Y), L, turn, prevTurn: prev ? prev.turn : null,
-    marks: [], cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], crushers: [], crumbles: [], flips: [], rings: [], group: new THREE.Group(), start: RUN.genDist,
+    marks: [], wells: [], cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], crushers: [], crumbles: [], flips: [], rings: [], group: new THREE.Group(), start: RUN.genDist,
   };
   for (let k = prev ? -1 : -8; k <= L; k++) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { // -1: completes the corner cube
     if (i || j) setCell(seg, o.clone().addScaledVector(d, k).addScaledVector(Y, i).addScaledVector(seg.r, j), i && j ? 0 : 5, RUN.genDist + k, Y.clone().multiplyScalar(i).addScaledVector(seg.r, j).normalize());
   }
+  planZones(RUN.genDist + L + 40);
+  for (const z of RUN.zonePlan) if (z.A >= RUN.genDist && z.A < RUN.genDist + L) mark(seg, z.A - RUN.genDist, z.type);
   let k = prev ? 9 : 44; // first segment: long run-in while the hints show
   let lastGlobal = false;
   while (k < L - 22) { // the stretch before a corner stays clear: the turn is enough to handle there
     const dd = Math.min(1, (seg.start + k) / 1800);
     let extra = 0;
     const dist = seg.start + k;
+    const zone = zoneAt(dist);
     const g = lastGlobal ? 1 : Math.random(); // never two ring-shaped walls in a row
     lastGlobal = false;
-    if (isOpen('portal', dist) && g < 0.045 + dd * 0.03) { addPortal(seg, k); mark(seg, k, 'portal'); extra = 3; lastGlobal = true; }
+    if (zone && zone.mode && dist > zone.A + 10 && dist < zone.B - 6) {
+      // inside a track-transforming zone the zone's own patterns take over
+      for (let fi = 0; fi < 4; fi++) extra = Math.max(extra, modePattern(seg, k, fi, zone.mode, zone));
+      if (zone.schlundPending && !zone.schlund) {
+        zone.schlund = seg.start + k + 2;
+        for (let fi = 0; fi < 4; fi++) { addPad(seg, k, fi); addGap(seg, k + 2, fi, 7); }
+        mark(seg, k, 'schlund');
+        extra = 10;
+      }
+    } else if (zone && zone.mode && dist >= zone.A - 4) {
+      // the edges of a zone stay calm while the track transforms
+    } else if (isOpen('portal', dist) && g < 0.045 + dd * 0.03) { addPortal(seg, k); mark(seg, k, 'portal'); extra = 3; lastGlobal = true; }
     else if (isOpen('ring', dist) && g < 0.1 + dd * 0.06) { addRing(seg, k); mark(seg, k, 'ring'); extra = 2; lastGlobal = true; }
     else if (isOpen('phase', dist) && g < 0.18 + dd * 0.1) {
       const p = Math.random() < 0.5 ? 1 : 2;
@@ -1900,11 +2004,12 @@ function startRun() {
   Object.assign(RUN, {
     si: 0, s: 0, fi: 0, lane: -1, uT: -1, uV: -1, y: 0, vy: 0, prevY: 0, grounded: true, speed: 8, dist: 0, genDist: 0,
     shards: 0, phase: 1, turnQueued: false, sog: 0, focus: 1, timeScale: 1, slow: false, jumpBuf: 0,
-    moment: 1, dash: 1, dashT: 0, slam: false, zone: null, nextZone: 80, shield: false, flight: 0, invuln: 0, nextPower: 120, powerIdx: 0,
+    moment: 1, dash: 1, dashT: 0, slam: false, zone: null, zonePlan: [], nextZoneGen: 130, lastPlanned: null, sink: 0, boostT: 0, prevFloor: 0, surfV: 0, shield: false, flight: 0, invuln: 0, nextPower: 120, powerIdx: 0,
   });
   gsap.killTweensOf(RUN);
   resetWarp();
   [wormhole, strudel].forEach((o) => { gsap.killTweensOf(o.userData.u.uA); o.userData.u.uA.value = 0; o.visible = false; });
+  levelU.uZones.value.forEach((v) => v.set(0, 0, 0, 0)); levelU.uWells.value.forEach((v) => v.set(0, 0, 0, 0));
   RUN.offset.set(0, 0, 0);
   manageSegs();
   lv.group.visible = false;
@@ -2091,7 +2196,43 @@ function wallAhead() {
   }
   return false;
 }
-const ZONES = ['spirale', 'trichter', 'welle', 'schlange', 'negativ', 'wurmloch', 'strudel'];
+// Zones are planned while the track is generated, so the track itself is built for them.
+// Four of them transform the track (with their own mechanics), three only bend the world.
+const TRACK_ZONES = ['wogen', 'senke', 'fluss', 'sand'];
+const FX_ZONES = ['spirale', 'schlange', 'negativ'];
+const ZONES = [...TRACK_ZONES, ...FX_ZONES];
+const TRACK_MODE = { wogen: 1, senke: 2, fluss: 3, sand: 4 };
+function planZones(upTo) {
+  while (RUN.nextZoneGen < upTo) {
+    let type;
+    do type = RUN.forceType || (Math.random() < 0.72 ? TRACK_ZONES : FX_ZONES)[(Math.random() * 4) | 0] || 'spirale';
+    while (!RUN.forceType && type === RUN.lastPlanned);
+    RUN.lastPlanned = type;
+    const A = RUN.nextZoneGen, B = A + 180 + Math.random() * 60;
+    RUN.zonePlan.push({ type, A, B, mode: TRACK_MODE[type] || 0 });
+    RUN.nextZoneGen = B + 80 + Math.random() * 70;
+  }
+}
+const zoneAt = (p) => RUN.zonePlan.find((z) => p >= z.A && p <= z.B);
+const zoneFactor = (z, p) => { const a = clamp((p - (z.A - 4)) / 14, 0, 1), b = clamp((p - (z.B - 10)) / 14, 0, 1); return a * a * (3 - 2 * a) * (1 - b * b * (3 - 2 * b)); };
+// wogen: the beam's surface rides a travelling wave (same formula as the shader)
+function terrainAt(p) {
+  const z = zoneAt(p);
+  if (!z || z.mode !== 1) return 0;
+  return 1.1 * (0.5 + 0.5 * Math.sin(p * 0.35 + U.time.value * 3.0)) * zoneFactor(z, p);
+}
+// senke: cells around a gravity well sink (same formula as the shader)
+function wellDip(seg, k) {
+  let dip = 0;
+  for (const sg of [seg, RUN.segs[RUN.si + 1]]) {
+    if (!sg) continue;
+    for (const w of sg.wells) {
+      const dd = faceCell(seg, k, RUN.fi, RUN.lane).distanceToSquared(w.pos);
+      dip -= 0.8 * Math.exp(-dd / 3);
+    }
+  }
+  return dip;
+}
 function tweenWarp(t, d) {
   ['uTwist', 'uCurve', 'uWave', 'uSnake'].forEach((k) => gsap.to(WARP[k], { value: t[k] || 0, duration: d, ease: 'sine.inOut', overwrite: true }));
 }
@@ -2101,30 +2242,27 @@ function resetWarp() {
   post.mat.uniforms.uInvert.value = 0;
   WARP.uDir.value.set(0, 0, 0);
 }
-function startZone() {
-  let type;
-  do type = ZONES[(Math.random() * ZONES.length) | 0]; while (type === RUN.lastZone);
-  RUN.lastZone = type;
-  RUN.zone = { type, end: RUN.dist + 170 + Math.random() * 70 };
+function startZone(z) {
+  RUN.zone = z;
+  const type = z.type;
   const D = Math.min(1, RUN.dist / 1800);
   const t = {};
   if (type === 'spirale') t.uTwist = (Math.random() < 0.5 ? -1 : 1) * (0.075 + 0.035 * D);
-  if (type === 'trichter') t.uCurve = 0.007 + 0.004 * D;
-  if (type === 'welle') t.uWave = 1.7;
   if (type === 'schlange') t.uSnake = 1.6;
   if (type === 'negativ') { t.uTwist = 0.03; t.uWave = 0.6; gsap.to(post.mat.uniforms.uInvert, { value: 1, duration: 0.5, ease: 'power2.inOut' }); }
-  if (type === 'wurmloch') {
-    // a throat of field lines ahead; the world twists towards it
-    t.uTwist = 0.035 * (Math.random() < 0.5 ? -1 : 1);
-    RUN.zone.gateAt = RUN.segs[RUN.si].start + RUN.s + 70;
+  if (type === 'senke') t.uCurve = 0.003; // the point-grid well opens below and ahead
+  if (type === 'fluss') {
+    // field-line throats along the way; the lines twist a little
+    t.uTwist = 0.02 * (Math.random() < 0.5 ? -1 : 1);
+    z.gateAt = (z.A + z.B) / 2 - 35;
     gsap.fromTo(wormhole.userData.u.uA, { value: 0 }, { value: 1, duration: 2.5 });
   }
-  if (type === 'strudel') {
-    t.uCurve = 0.004; t.uSnake = 0.5;
+  if (type === 'sand') {
+    t.uCurve = 0.003;
     gsap.fromTo(strudel.userData.u.uA, { value: 0 }, { value: 1, duration: 3 });
   }
-  // zones combine from the start, more often later on
-  if (!['negativ', 'wurmloch', 'strudel'].includes(type) && Math.random() < 0.35 + D * 0.4) {
+  // effect zones combine more often later on
+  if (FX_ZONES.includes(type) && type !== 'negativ' && Math.random() < 0.35 + D * 0.4) {
     const extra = ['uTwist', 'uWave', 'uSnake'][(Math.random() * 3) | 0];
     if (!t[extra]) t[extra] = extra === 'uTwist' ? 0.04 * (Math.random() < 0.5 ? -1 : 1) : 0.9;
   }
@@ -2140,7 +2278,6 @@ function endZone() {
   gsap.to(strudel.userData.u.uA, { value: 0, duration: 2.5 });
   gsap.to(post.mat.uniforms.uInvert, { value: 0, duration: 0.6, ease: 'power2.inOut' });
   RUN.zone = null;
-  RUN.nextZone = RUN.dist + 90 + Math.random() * 80;
 }
 function runInput(dir) {
   if (G.mode !== 'run') return;
@@ -2207,7 +2344,12 @@ function runStep(dt) {
   // a dash that would end above a hole carries on until there is floor again
   if (dashing && RUN.dashT === 0 && (RUN.dashExt || 0) < 0.8 && stackAt(seg, Math.round(RUN.s + 0.5)) === -Infinity) { RUN.dashT = 0.04; RUN.dashExt = (RUN.dashExt || 0) + 0.04; }
   RUN.dash = Math.min(1, RUN.dash + dt / 2.2);
-  const adv = RUN.speed * (dashing ? 2.4 : 1) * ts;
+  const zc = zoneAt(seg.start + RUN.s);
+  const mode = zc ? zc.mode : 0;
+  // fluss: the current carries you faster; sand: the stream pushes, quicksand drags
+  let mult = mode === 3 ? 1.25 : mode === 4 ? (RUN.sink > 0 ? 0.55 : 1.2) : 1;
+  if (RUN.boostT > 0) { RUN.boostT -= ts; mult *= 1.5; }
+  const adv = RUN.speed * mult * (dashing ? 2.4 : 1) * ts;
   RUN.s += adv; RUN.dist += adv;
   if (RUN.turnQueued && RUN.s >= seg.L) { transfer(); seg = RUN.segs[RUN.si]; }
 
@@ -2231,7 +2373,16 @@ function runStep(dt) {
   else RUN.vy -= GRAV * (RUN.slam ? 2.2 : 1) * ts;
   RUN.y += RUN.vy * ts;
   const k = Math.round(RUN.s);
-  const floor = stackAt(seg, k);
+  // floor = cells + the zone's surface: wogen waves, senke dips, quicksand sinking
+  const onSand = RUNMAP.get(kv(faceCell(seg, k, RUN.fi, RUN.lane))) === 6;
+  if (onSand && RUN.grounded && !dashing) RUN.sink += ts * 1.0; else RUN.sink = 0;
+  if (RUN.sink > 0.95) return runDie('versunken');
+  let floor = stackAt(seg, k);
+  if (floor !== -Infinity) floor += terrainAt(seg.start + k) + (seg.wells.length || (RUN.segs[RUN.si + 1] || {}).wells?.length ? wellDip(seg, k) : 0) - RUN.sink;
+  // a falling floor under a grounded ball turns its rising speed into a launch (wave crests)
+  if (RUN.grounded && floor < RUN.y - 0.02 && RUN.surfV > 0.5) { RUN.vy = RUN.surfV * 0.9; RUN.grounded = false; RUN.y += RUN.vy * ts; }
+  RUN.surfV = RUN.grounded ? (floor - RUN.prevFloor) / Math.max(ts, 1e-4) : 0;
+  RUN.prevFloor = floor;
   if (RUN.vy <= 0 && RUN.y <= floor && (RUN.prevY >= floor - 0.05 || RUN.y > floor - 0.45)) {
     if (!RUN.grounded) {
       const impact = Math.min(1.6, -RUN.vy / 14);
@@ -2259,9 +2410,10 @@ function runStep(dt) {
   // front collision: anything taller than the ball's height ahead
   const kA = Math.round(RUN.s + 0.32);
   // in the corner, the next beam must not count as a wall once the turn is queued
-  const hA = RUN.turnQueued && kA >= seg.L - 1 ? Math.min(stackAt(seg, kA), 0) : stackAt(seg, kA);
+  let hA = RUN.turnQueued && kA >= seg.L - 1 ? Math.min(stackAt(seg, kA), 0) : stackAt(seg, kA);
+  if (hA !== -Infinity) hA += terrainAt(seg.start + kA) + (seg.wells.length ? wellDip(seg, kA) : 0);
   // small ledges (landing a bit short, sinking at the end of a dash) are stepped up, not crashed into
-  if (hA > RUN.y + 0.32 && hA - RUN.y <= 0.6) { RUN.y = hA; RUN.vy = Math.max(RUN.vy, 0); RUN.grounded = true; }
+  if (hA > RUN.y + 0.32 && hA - RUN.y <= (mode ? 1.0 : 0.6)) { RUN.y = hA; RUN.vy = Math.max(RUN.vy, 0); RUN.grounded = true; }
   else if (hA > RUN.y + 0.32) {
     if (!dashing) return runDie(kA >= seg.L - 1 ? 'kurve verpasst' : 'aufgeprallt');
     // dash smashes the column in front
@@ -2281,6 +2433,15 @@ function runStep(dt) {
   }
   if (RUN.y < -2.4) return runDie(RUN.s > seg.L + 0.5 ? 'kurve verpasst' : 'abgestürzt');
 
+  for (const w of seg.wells) {
+    const ahead = w.k - RUN.s;
+    if (w.pulled || w.fi !== RUN.fi || ahead < 1 || ahead > 6 || !RUN.grounded) continue;
+    w.pulled = true;
+    if (RUN.lane !== w.lane) { laneShift(w.lane); toast('sog'); kick(0.03, 0.4, 0); vibrate(12); }
+  }
+  if (zc && zc.type === 'fluss' && zc.gateAt && Math.abs(seg.start + RUN.s - zc.gateAt) < 0.6 && !zc.boosted) {
+    zc.boosted = true; RUN.boostT = 1.2; sfx.portal(); kick(0.05, 1.4, 0.1); toast('strömung');
+  }
   for (const cr of seg.crushers) {
     if (!cr.alive || cr.fi !== RUN.fi || cr.lane !== RUN.lane || Math.abs(RUN.s - cr.k) > 0.55) continue;
     const h = crusherH(cr);
@@ -2402,8 +2563,8 @@ function collectAndFinish(dt, seg) {
 
   const b = Math.floor((seg.start + RUN.s) / BIOME_LEN);
   if (b !== RUN.biome) setBiome(b, true);
-  if (!RUN.zone && RUN.dist > RUN.nextZone) startZone();
-  else if (RUN.zone && RUN.dist > RUN.zone.end) endZone();
+  const zNow = zoneAt(seg.start + RUN.s);
+  if (zNow !== RUN.zone) { if (RUN.zone) endZone(); if (zNow) startZone(zNow); }
   if (RUN.s > seg.L * 0.5) manageSegs();
 }
 
@@ -2645,9 +2806,9 @@ function runFrame(dt) {
   // backgrounds travel with the ball, snapped to their lattice so they stay put
   const bio0 = BIOMES[RUN.biome % BIOMES.length];
   const zt = RUN.zone && RUN.zone.type;
-  const bio = zt === 'trichter' ? { ...bio0, bg: 1 } : bio0; // the funnel zone shows the point-grid well
+  const bio = zt === 'senke' ? { ...bio0, bg: 1 } : bio0; // the well zone shows the point-grid funnel
   backgrounds[0].visible = bio.bg === 0; backgrounds[1].visible = bio.bg === 1;
-  RUN.bgLift = (RUN.bgLift || 0) + ((zt === 'trichter' ? 8 : 0) - (RUN.bgLift || 0)) * (1 - Math.exp(-dt * 1.2)); // raise the well during the funnel zone
+  RUN.bgLift = (RUN.bgLift || 0) + ((zt === 'senke' ? 8 : 0) - (RUN.bgLift || 0)) * (1 - Math.exp(-dt * 1.2)); // raise the well during the funnel zone
   if (bio.bg === 0) bgRoot.position.set(Math.round(vis.pos.x / 3.12) * 3.12, RUN.bgLift, Math.round(vis.pos.z / 1.8013) * 1.8013);
   else bgRoot.position.set(Math.round(vis.pos.x / 2) * 2, RUN.bgLift, Math.round(vis.pos.z / 2) * 2);
   const shaft = backgrounds[2];
@@ -2657,12 +2818,12 @@ function runFrame(dt) {
   WARP.uAxisO.value.copy(seg.o).addScaledVector(seg.d, RUN.s);
   WARP.uUp.value.lerp(_ru.set(0, 1, 0).applyQuaternion(vis.frame), 1 - Math.exp(-dt * 4)).normalize();
   // wormhole: keep the throat ahead until the ball reaches it, then let it pass
-  if (zt === 'wurmloch' || wormhole.userData.u.uA.value > 0.01) {
+  if (zt === 'fluss' || wormhole.userData.u.uA.value > 0.01) {
     const here = seg.start + RUN.s;
     if (RUN.zone && RUN.zone.gateAt && RUN.zone.gateAt - here < 25 && RUN.zone.gateAt - here > -40) {
       // fixed in place: the ball rolls through it
     } else if (RUN.zone && RUN.zone.gateAt) {
-      if (RUN.zone.gateAt - here <= -40) RUN.zone.gateAt = here + 70; // next throat
+      if (RUN.zone.gateAt - here <= -40) { RUN.zone.gateAt = here + 70; RUN.zone.boosted = false; } // next throat
       const tp = trackPoint(RUN.zone.gateAt);
       if (tp) { wormhole.position.copy(tp.p); wormhole.quaternion.setFromUnitVectors(Z_AXIS, tp.d); }
     }
@@ -2671,7 +2832,9 @@ function runFrame(dt) {
   // sand vortex ahead and below; the track dives towards it
   strudel.visible = strudel.userData.u.uA.value > 0.01;
   if (strudel.visible) {
-    strudel.position.copy(WARP.uAxisO.value).addScaledVector(seg.d, 42).addScaledVector(WARP.uUp.value, -5);
+    const sp = RUN.zone && RUN.zone.schlund ? trackPoint(RUN.zone.schlund + 4) : null; // the vortex sits in the maw
+    if (sp) strudel.position.copy(sp.p).addScaledVector(WARP.uUp.value, -4);
+    else strudel.position.copy(WARP.uAxisO.value).addScaledVector(seg.d, 42).addScaledVector(WARP.uUp.value, -5);
     strudel.quaternion.setFromUnitVectors(UP, WARP.uUp.value);
   }
   const wantShaft = bio.bg === 2 || zt === 'spirale' ? 1 : 0;
@@ -2689,6 +2852,16 @@ function runFrame(dt) {
   decoU.uLen.value = 0.8 + spK * 2.5 + dashK * 5;
   decoU.uLineA.value = 0.12 + spK * 0.35 + dashK * 0.5;
   levelU.uDist.value = seg.start + RUN.s; // track position of the ball (cells carry the same measure)
+  const hereT = seg.start + RUN.s;
+  const upcoming = RUN.zonePlan.filter((z) => z.B > hereT - 20 && z.mode).slice(0, 2);
+  levelU.uZones.value.forEach((v, i) => { const z = upcoming[i]; if (z) v.set(z.A, z.B, z.mode, 0); else v.set(0, 0, 0, 0); });
+  let wi = 0;
+  for (let si = RUN.si; si < Math.min(RUN.segs.length, RUN.si + 2) && wi < 6; si++) for (const w of RUN.segs[si].wells) {
+    if (wi >= 6) break;
+    if (si === RUN.si && w.k < RUN.s - 6) continue;
+    levelU.uWells.value[wi++].set(w.pos.x, w.pos.y, w.pos.z, 1);
+  }
+  for (; wi < 6; wi++) levelU.uWells.value[wi].set(0, 0, 0, 0);
   levelU.uRise.value = Math.max(12, RUN.speed * 1.1);
 
   // turn arrow
@@ -2878,7 +3051,7 @@ function loop() {
   halo.position.copy(vis.pos);
   halo.material.opacity = vis.scale * (G.mode === 'title' ? 0 : 1);
   _a.copy(vis.pos).sub(bgRoot.position);
-  if (RUN.zone && RUN.zone.type === 'trichter' && RUN.segs[RUN.si]) _a.addScaledVector(RUN.segs[RUN.si].d, 32); // the well opens up ahead
+  if (RUN.zone && RUN.zone.type === 'senke' && RUN.segs[RUN.si]) _a.addScaledVector(RUN.segs[RUN.si].d, 32); // the well opens up ahead
   bgU.uWell.value.lerp(_a, 1 - Math.exp(-dt * 0.8));
 
   trailTimer += dt;
@@ -2946,4 +3119,4 @@ showTitle();
 loop();
 
 // debug / test hook
-window.kippwelt = { __t: { runStep, runVisual, occ, stackAt, faceN, faceCell, crusherH, sweeperX, perim, U, GRAV, JUMP_V, PAD_V, turnRequired, manageSegs, laneShift, runJump, runDash, runPhase, runSlam, wallAhead, speedAt, kv, R }, vis, forceZone: (z) => { RUN.zone = null; const keep = Math.random; let i = 0; Math.random = () => (i++ === 0 ? ZONES.indexOf(z) / ZONES.length + 0.01 : keep()); startZone(); Math.random = keep; }, endZone, music, buffers, audio, G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };
+window.kippwelt = { __t: { runStep, runVisual, occ, stackAt, faceN, faceCell, crusherH, sweeperX, perim, U, GRAV, JUMP_V, PAD_V, turnRequired, manageSegs, laneShift, runJump, runDash, runPhase, runSlam, wallAhead, speedAt, kv, R }, vis, forceZone: (z) => { RUN.forceType = z; }, zoneAt, terrainAt, endZone, music, buffers, audio, G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };

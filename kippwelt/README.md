@@ -33,7 +33,16 @@ Hindernisse: Blöcke und Türme, Stacheln, Lücken, Schieber (gleiten über die 
 
 ## Wandlungs-Zonen
 
-Ab 80 m und danach alle 90 bis 170 m verwandelt sich die Welt für 170 bis 240 m: **Spirale** (Strecke, Schacht und Hintergrund drehen sich korkenzieherartig um die Bahn), **Trichter** (die Strecke stürzt vor dir in eine Senke), **Welle**, **Schlange** und **Negativ** (alles invertiert), **Wurmloch** (Feldlinien laufen zu einer Kehle um die Strecke zusammen) und **Strudel** (ein Sandfeld aus Partikeln strömt in ein schwarzes Loch, die Strecke taucht darauf zu). Im Trichter öffnet sich die Punktgitter-Senke vor dir. Die Kamera folgt der verbogenen Strecke. Jeder Biomwechsel ist ein Feldlinien-Portal, durch das du hindurchrollst. Zonen kombinieren sich (zu Beginn selten, später häufiger). Die Verformung wirkt nur vor der Kugel und glättet sich beim Näherkommen, rund um die Kugel bleibt alles flach und spielbar. Technisch ist das eine gemeinsame Vertex-Funktion `warpRun`, die alle Shader und auch die eingebauten Materialien nutzen.
+Zonen werden beim Erzeugen der Strecke mitgeplant (erste ab 130 m, dann alle 80 bis 150 m, je 180 bis 240 m lang). Vier davon verwandeln die Strecke selbst, sichtbar schon von Weitem, und bringen eigene Mechanik mit:
+
+| Zone | Strecke | Mechanik |
+| --- | --- | --- |
+| **Wogen** | Der Balken hebt und senkt sich in entgegenlaufenden Wellen, Säulen-Optik | Wellenkämme schleudern dich hoch, Lücken und Blöcke im Rhythmus der Wellen |
+| **Senke** | Die Blöcke werden zum Punktgitter, darin Gravitationstrichter mit Loch | Ein Trichter zieht dich in seine Spur, du musst über das Loch springen; dahinter öffnet sich die Punktgitter-Senke |
+| **Fluss** | Feldlinien-Schienen mit fließenden Lichtperlen, Wurmloch-Kehlen | Strömung (+25 % Tempo), Schienen brechen abwechselnd links und rechts ab; jede Kehle gibt einen Schub |
+| **Sand** | Strömender Sand, am Ende ein Strudel | Treibsand lässt dich einsinken und bremst, raus springen oder Spur wechseln; der Schlund am Ende wird mit dem Sprungfeld überquert |
+
+Dazu drei Effekt-Zonen, die nur die Welt verbiegen: **Spirale**, **Schlange**, **Negativ**. Die Verformung wirkt vor der Kugel, die Kamera folgt der verbogenen Strecke. Jeder Biomwechsel ist ein Feldlinien-Portal.
 
 ## Power-ups und Einführung
 
