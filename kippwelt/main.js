@@ -25,6 +25,18 @@ const camera = new THREE.PerspectiveCamera(62, 1, 0.05, 400);
 const U = { time: { value: 0 }, px: { value: dpr } };
 // Post FX: the scene renders into a texture, then one composite pass adds chromatic
 // aberration, radial motion blur, vignette, grain and (in bullet time) afterimages.
+// Farbrausch palettes: five tones each, dark base → light, built around complementary pairs.
+const hex3 = (h) => new THREE.Vector3(((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255);
+const PALETTES = {
+  synth:   [0x14062e, 0xff2e88, 0xff8a3d, 0x2de2e6, 0xfff3fb], // magenta / orange ↔ cyan
+  saeure:  [0x061a14, 0x8a2be2, 0xb6ff3b, 0x22d3ee, 0xf4ffe0], // violet ↔ lime
+  uv:      [0x10002b, 0x7b2cff, 0xff3cac, 0xffe14d, 0xfffbe6], // ultraviolet ↔ yellow
+  koralle: [0x04161c, 0x0f8b8d, 0xff6f59, 0xffd166, 0xfff6ea], // petrol ↔ coral
+  aqua:    [0x050d2b, 0x3a86ff, 0xff006e, 0x8affd4, 0xf2fbff], // blue / pink ↔ mint
+  sunset:  [0x1d0614, 0xd7263d, 0xf46036, 0x1b998b, 0xfff1d0], // red / amber ↔ teal
+};
+const ZONE_PALETTE = { wogen: 'koralle', senke: 'saeure', fluss: 'aqua', sand: 'sunset', spirale: 'synth', schlange: 'uv', negativ: 'saeure' };
+const BIOME_PALETTE = ['synth', 'uv', 'aqua'];
 const post = {
   scene: new THREE.WebGLRenderTarget(1, 1, { samples: 4 }),
   a: new THREE.WebGLRenderTarget(1, 1),
@@ -35,16 +47,33 @@ const post = {
 post.mat = new THREE.ShaderMaterial({
   uniforms: {
     tScene: { value: null }, tPrev: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uTime: { value: 0 },
-    uCA: { value: 0 }, uBlur: { value: 0 }, uAfter: { value: 0 }, uFlash: { value: 0 }, uVig: { value: 0.55 }, uInvert: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.52) },
+    uCA: { value: 0 }, uBlur: { value: 0 }, uAfter: { value: 0 }, uFlash: { value: 0 }, uVig: { value: 0.55 }, uInvert: { value: 0 },
+    uColor: { value: 0 }, uHue: { value: 0 }, uTrip: { value: 1 }, uPalMix: { value: 0 },
+    uPalA: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uPalB: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uCenter: { value: new THREE.Vector2(0.5, 0.52) },
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: /* glsl */`
     uniform sampler2D tScene, tPrev; uniform vec2 uRes, uCenter; uniform float uTime, uCA, uBlur, uAfter, uFlash, uVig, uInvert;
+    uniform float uColor, uHue, uTrip, uPalMix; uniform vec3 uPalA[5], uPalB[5];
     varying vec2 vUv;
     vec3 ca(vec2 uv, vec2 d){
       return vec3(texture2D(tScene, uv + d * uCA).r, texture2D(tScene, uv).g, texture2D(tScene, uv - d * uCA).b);
     }
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    vec3 pal(int i){ return mix(uPalA[i], uPalB[i], uPalMix); }
+    // dark base → bright: maps the monochrome world onto the palette
+    vec3 ramp(float t){
+      t = clamp(t, 0.0, 1.0) * 4.0;
+      int i = int(min(floor(t), 3.0));
+      return mix(pal(i), pal(i + 1), smoothstep(0.0, 1.0, t - float(i)));
+    }
+    // cycles through the four bright colours (1..4), wrapping: the trippy part
+    vec3 cycle(float t){
+      t = fract(t) * 4.0;
+      int i = int(floor(t));
+      vec3 a = pal(1 + i), b = pal(1 + (i + 1) - ((i + 1) / 4) * 4);
+      return mix(a, b, smoothstep(0.0, 1.0, fract(t)));
+    }
     void main(){
       vec2 d = vUv - uCenter;
       vec3 col;
@@ -54,9 +83,23 @@ post.mat = new THREE.ShaderMaterial({
         col /= 6.0;
       } else col = ca(vUv, d);
       col = mix(col, 1.0 - col, uInvert);
+      if (uColor > 0.001) {
+        // Farbrausch: luminance → palette ramp, plus colour rings running out of the centre
+        // and a slow hue drift, so the same shapes keep changing colour
+        float lum = dot(col, vec3(0.299, 0.587, 0.114));
+        float rd = length(d * vec2(uRes.x / uRes.y, 1.0));
+        float rings = sin(rd * 13.0 - uTime * 1.7 + lum * 2.5);
+        vec3 base = ramp(lum * 1.08);
+        vec3 cyc = cycle(lum * 1.4 + uHue + rings * 0.09 * uTrip + d.y * 0.35 * uTrip);
+        vec3 cc = mix(base, cyc, smoothstep(0.08, 0.55, lum) * 0.62);
+        cc += pal(4) * smoothstep(0.88, 1.0, lum) * 0.35;           // highlights bloom into the lightest tone
+        cc = mix(cc, cc * (0.85 + 0.25 * rings), 0.35 * uTrip);      // faint banding
+        cc += (col - lum) * 1.6;                                     // keep the RGB split fringes from the aberration
+        col = mix(col, cc, uColor);
+      }
       float vig = smoothstep(1.15, 0.3, length(d * vec2(uRes.x / uRes.y, 1.0)));
       col *= mix(1.0, vig, uVig * (1.0 - uInvert * 0.7));
-      col += (hash(vUv * uRes + fract(uTime) * 91.0) - 0.5) * 0.04;
+      col += (hash(vUv * uRes + fract(uTime) * 91.0) - 0.5) * 0.04 * (1.0 - uColor * 0.6); // less grain on colour fields
       if (uAfter > 0.01) col = max(col, texture2D(tPrev, vUv).rgb * uAfter - 0.035);
       gl_FragColor = vec4(col + uFlash, 1.0);
     }`,
@@ -67,6 +110,30 @@ post.mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post.mat);
 post.mesh.frustumCulled = false;
 post.quad.add(post.mesh);
 
+let palName = 'synth';
+function setPalette(name, dur = 2) {
+  if (!PALETTES[name] || name === palName) return;
+  palName = name;
+  const u = post.mat.uniforms;
+  // freeze the current blend into A, then fade towards the new palette in B
+  u.uPalA.value.forEach((v, i) => v.lerp(u.uPalB.value[i], u.uPalMix.value));
+  PALETTES[name].forEach((h, i) => u.uPalB.value[i].copy(hex3(h)));
+  gsap.killTweensOf(u.uPalMix);
+  u.uPalMix.value = 0;
+  gsap.to(u.uPalMix, { value: 1, duration: dur, ease: 'sine.inOut' });
+}
+PALETTES.synth.forEach((h, i) => { post.mat.uniforms.uPalA.value[i].copy(hex3(h)); post.mat.uniforms.uPalB.value[i].copy(hex3(h)); });
+post.mat.uniforms.uTrip.value = REDUCED ? 0.3 : 1;
+let colorOn = false;
+try { colorOn = localStorage.getItem('kippwelt-color') === 'on'; } catch (_) {}
+post.mat.uniforms.uColor.value = colorOn ? 1 : 0;
+function setColor(on) {
+  colorOn = on;
+  try { localStorage.setItem('kippwelt-color', on ? 'on' : 'off'); } catch (_) {}
+  gsap.to(post.mat.uniforms.uColor, { value: on ? 1 : 0, duration: 0.9, ease: 'power2.inOut' });
+  document.querySelectorAll('.color-toggle').forEach((b) => { b.textContent = on ? 'Farbrausch an' : 'Farbrausch aus'; b.setAttribute('aria-pressed', String(on)); });
+  document.body.classList.toggle('farbe', on);
+}
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -1179,6 +1246,7 @@ function loadLevel(i, { keepDeaths = false } = {}) {
 
 function startPlay(i) {
   audioInit();
+  setPalette(['synth', 'uv'][LEVELS[i].world], 1.2);
   musicSlow(0);
   musicPlay(['wabe', 'senke'][LEVELS[i].world]);
   $('runHud').hidden = true;
@@ -1338,6 +1406,7 @@ function renderLevelList() {
 
 function showTitle() {
   G.mode = 'title';
+  setPalette('synth', 1.2);
   musicSlow(0);
   musicPlay('menu');
   $('runHud').hidden = true;
@@ -1377,6 +1446,8 @@ function setSound(on) {
   if (on) audioInit();
 }
 setSound(audio.on);
+setColor(colorOn);
+document.querySelectorAll('.color-toggle').forEach((b) => b.addEventListener('click', () => setColor(!colorOn)));
 $('soundBtn').addEventListener('click', () => setSound(!audio.on));
 $('soundBtn2').addEventListener('click', () => setSound(!audio.on));
 $('playBtn').addEventListener('click', () => startPlay(Math.min(progress.unlocked, LEVELS.length) - 1));
@@ -1989,6 +2060,7 @@ function setBiome(b, announce) {
   const bio = BIOMES[b % BIOMES.length];
   backgrounds.forEach((m, k) => { m.visible = k === bio.bg; });
   musicPlay(bio.name, { fade: announce ? 1.2 : 0.05 });
+  if (!RUN.zone) setPalette(BIOME_PALETTE[b % BIOME_PALETTE.length], announce ? 2.5 : 0.01);
   gsap.to(levelU.uStyle, { value: b % BIOMES.length, duration: announce ? 2.5 : 0, ease: 'power2.inOut' });
   $('runBiome').textContent = bio.name;
   if (announce) {
@@ -2245,6 +2317,7 @@ function resetWarp() {
 function startZone(z) {
   RUN.zone = z;
   const type = z.type;
+  setPalette(ZONE_PALETTE[type], 2.5);
   const D = Math.min(1, RUN.dist / 1800);
   const t = {};
   if (type === 'spirale') t.uTwist = (Math.random() < 0.5 ? -1 : 1) * (0.075 + 0.035 * D);
@@ -2278,6 +2351,7 @@ function endZone() {
   gsap.to(strudel.userData.u.uA, { value: 0, duration: 2.5 });
   gsap.to(post.mat.uniforms.uInvert, { value: 0, duration: 0.6, ease: 'power2.inOut' });
   RUN.zone = null;
+  setPalette(BIOME_PALETTE[RUN.biome % BIOME_PALETTE.length], 2.5);
 }
 function runInput(dir) {
   if (G.mode !== 'run') return;
@@ -2961,6 +3035,7 @@ $('runMenuBtn').addEventListener('click', () => showTitle());
 const fx = { fovKick: 0, shake: 0, ca: 0, blur: 0, after: 0, flash: 0 };
 function kick(ca = 0, blur = 0, flash = 0) {
   if (REDUCED) return;
+  if (ca && post.mat.uniforms.uColor.value > 0.01) gsap.to(post.mat.uniforms.uHue, { value: '+=' + (ca * 5).toFixed(3), duration: 0.5, ease: 'expo.out' });
   if (ca) gsap.fromTo(fx, { ca }, { ca: 0, duration: 0.7, ease: 'expo.out', overwrite: false });
   if (blur) gsap.fromTo(fx, { blur }, { blur: 0, duration: 0.6, ease: 'power2.out', overwrite: false });
   if (flash) gsap.fromTo(fx, { flash }, { flash: 0, duration: 0.35, ease: 'power2.out', overwrite: false });
@@ -3097,12 +3172,13 @@ function loop() {
   }
   camera.updateProjectionMatrix();
   const inRunFx = G.mode === 'run' || G.mode === 'rundying';
+  if (post.mat.uniforms.uColor.value > 0.001) post.mat.uniforms.uHue.value += dt * (0.035 + (inRunFx ? (1 - RUN.timeScale * RUN.moment) * 0.4 : 0));
   const speedK = inRunFx ? clamp((RUN.speed - 8) / 11, 0, 1) : 0;
   const slowK = inRunFx ? 1 - RUN.timeScale * RUN.moment : 0;
   renderFrame(
     (REDUCED ? 0 : 0.0018 + speedK * 0.004 + slowK * 0.012) + fx.ca,
     (REDUCED ? 0 : speedK * 0.45) + fx.blur,
-    REDUCED ? 0 : Math.min(0.8, Math.max(fx.after, slowK * 0.85)),
+    REDUCED ? 0 : Math.min(0.8, Math.max(fx.after, slowK * 0.85, post.mat.uniforms.uColor.value * 0.32)),
     fx.flash);
 
   frames++;

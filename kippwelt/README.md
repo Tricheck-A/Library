@@ -83,6 +83,10 @@ Tastatur: Pfeile oder WASD, Leertaste springt, Shift zeigt die Übersicht, Esc p
 
 Phasenblöcke (gepunktet / schraffiert) sind nur in ihrer Phase fest. Stacheln sind entweder fest oder fahren im 2,4-Sekunden-Takt aus und ein. Pro Level gibt es drei Rauten: Ausgang erreicht, alle Splitter, ohne Sturz.
 
+## Farbrausch
+
+Schalter im Startmenü und in der Pause (wird gemerkt). Der Nachbearbeitungs-Pass bildet die schwarz-weiße Welt auf eine Palette mit fünf Tönen ab (dunkle Grundfarbe bis hellster Ton, jeweils um Komplementärpaare gebaut: Magenta/Orange ↔ Cyan, Violett ↔ Limette, Ultraviolett ↔ Gelb, Petrol ↔ Koralle, Blau/Pink ↔ Mint, Rot/Amber ↔ Türkis). Darüber laufen Farbringe aus der Bildmitte, die Farben driften langsam durch die Palette (in der Bullet Time schneller), Stöße bei Sprung, Dash oder Tod lassen die Farben springen, und Bewegungen ziehen farbige Nachbilder. Jedes Biom und jede Zone hat eine eigene Palette, die weich überblendet; die Negativ-Zone kippt in die Komplementärfarben.
+
 ## Musik und Sounds
 
 Wie bei Geometry Dash, das Songs von Newgrounds-Künstlern lizenziert, stammt die Musik von unabhängigen Künstlern, hier ausschließlich unter CC0: Komiku, Loyalty Freak Music und Soft and Furious (Free Music Archive), Effekte aus Kenneys „Digital Audio“, Jingles von Beatscribe. Jede Welt hat ihren Song, jeder Lauf startet ihn von vorn, beim Tod bricht er ab, beim Biomwechsel blendet er über, in der Bullet Time sinkt er in Tonhöhe und klingt dumpf. Details und Quellen: `audio/CREDITS.md`.
