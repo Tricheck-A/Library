@@ -23,10 +23,78 @@ renderer.setClearColor(0x000000, 1);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, 1, 0.05, 400);
 const U = { time: { value: 0 }, px: { value: dpr } };
+// Post FX: the scene renders into a texture, then one composite pass adds chromatic
+// aberration, radial motion blur, vignette, grain and (in bullet time) afterimages.
+const post = {
+  scene: new THREE.WebGLRenderTarget(1, 1, { samples: 4 }),
+  a: new THREE.WebGLRenderTarget(1, 1),
+  b: new THREE.WebGLRenderTarget(1, 1),
+  cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1),
+  quad: new THREE.Scene(),
+};
+post.mat = new THREE.ShaderMaterial({
+  uniforms: {
+    tScene: { value: null }, tPrev: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uTime: { value: 0 },
+    uCA: { value: 0 }, uBlur: { value: 0 }, uAfter: { value: 0 }, uFlash: { value: 0 }, uVig: { value: 0.55 }, uCenter: { value: new THREE.Vector2(0.5, 0.52) },
+  },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: /* glsl */`
+    uniform sampler2D tScene, tPrev; uniform vec2 uRes, uCenter; uniform float uTime, uCA, uBlur, uAfter, uFlash, uVig;
+    varying vec2 vUv;
+    vec3 ca(vec2 uv, vec2 d){
+      return vec3(texture2D(tScene, uv + d * uCA).r, texture2D(tScene, uv).g, texture2D(tScene, uv - d * uCA).b);
+    }
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      vec2 d = vUv - uCenter;
+      vec3 col;
+      if (uBlur > 0.01) {
+        col = vec3(0.0);
+        for (int i = 0; i < 6; i++) col += ca(vUv - d * uBlur * float(i) * 0.022, d);
+        col /= 6.0;
+      } else col = ca(vUv, d);
+      float vig = smoothstep(1.15, 0.3, length(d * vec2(uRes.x / uRes.y, 1.0)));
+      col *= mix(1.0, vig, uVig);
+      col += (hash(vUv * uRes + fract(uTime) * 91.0) - 0.5) * 0.04;
+      if (uAfter > 0.01) col = max(col, texture2D(tPrev, vUv).rgb * uAfter - 0.035);
+      gl_FragColor = vec4(col + uFlash, 1.0);
+    }`,
+  depthTest: false, depthWrite: false,
+});
+post.copy = new THREE.MeshBasicMaterial({ map: null, depthTest: false, depthWrite: false });
+post.mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post.mat);
+post.mesh.frustumCulled = false;
+post.quad.add(post.mesh);
+
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  const v = renderer.getDrawingBufferSize(new THREE.Vector2());
+  [post.scene, post.a, post.b].forEach((t) => t.setSize(v.x, v.y));
+  post.mat.uniforms.uRes.value.copy(v);
+}
+function renderFrame(ca, blur, after, flash) {
+  renderer.setRenderTarget(post.scene);
+  renderer.render(scene, camera);
+  const u = post.mat.uniforms;
+  u.tScene.value = post.scene.texture;
+  u.tPrev.value = post.a.texture;
+  u.uCA.value = ca; u.uBlur.value = blur; u.uAfter.value = after; u.uFlash.value = flash; u.uTime.value += 0.0167;
+  post.mesh.material = post.mat;
+  if (after > 0.01) {
+    // feedback: composite into b, show b, keep b as next frame's "previous"
+    renderer.setRenderTarget(post.b);
+    renderer.render(post.quad, post.cam);
+    post.copy.map = post.b.texture;
+    post.mesh.material = post.copy;
+    renderer.setRenderTarget(null);
+    renderer.render(post.quad, post.cam);
+    [post.a, post.b] = [post.b, post.a];
+  } else {
+    renderer.setRenderTarget(null);
+    renderer.render(post.quad, post.cam);
+  }
 }
 window.addEventListener('resize', resize);
 resize();
@@ -398,7 +466,27 @@ const ball = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 32), shader({ uTime:
     float c = mix(shade, 0.04, max(lx, ly)) + rim * 0.4;
     gl_FragColor = vec4(vec3(c), 1.0);
   }`));
-scene.add(ball);
+const ballRig = new THREE.Group(); // oriented to the gravity frame; carries squash & stretch
+ballRig.add(ball);
+scene.add(ballRig);
+const ballQ = new THREE.Quaternion(); // accumulated rolling spin in world space
+const squash = { x: 1, y: 1, z: 1 };
+// cartoon impulses: y = along gravity normal, x = sideways, z = along travel
+function squashLand(p = 1) {
+  if (REDUCED) return;
+  gsap.killTweensOf(squash);
+  gsap.fromTo(squash, { y: 1 - 0.42 * p, x: 1 + 0.32 * p, z: 1 + 0.32 * p }, { y: 1, x: 1, z: 1, duration: 0.55, ease: 'elastic.out(1.2, 0.35)' });
+}
+function stretchJump(p = 1) {
+  if (REDUCED) return;
+  gsap.killTweensOf(squash);
+  gsap.fromTo(squash, { y: 1 + 0.45 * p, x: 1 - 0.22 * p, z: 1 - 0.22 * p }, { y: 1, x: 1, z: 1, duration: 0.45, ease: 'elastic.out(1, 0.4)' });
+}
+function stretchDash() {
+  if (REDUCED) return;
+  gsap.killTweensOf(squash);
+  gsap.fromTo(squash, { z: 2.1, x: 0.7, y: 0.7 }, { z: 1, x: 1, y: 1, duration: 0.6, ease: 'elastic.out(1, 0.45)', delay: 0.18 });
+}
 
 function glowTexture() {
   const c = document.createElement('canvas');
@@ -526,6 +614,8 @@ const sfx = {
   phase: () => { tone(220, 55, 0.45, 'sawtooth', 0.05); tone(110, 440, 0.45, 'sine', 0.06); },
   open: () => [440, 554, 659, 880].forEach((f, i) => tone(f, f, 0.4, 'sine', 0.07, i * 0.09)),
   die: () => { noise(0.5, 0.25); tone(300, 40, 0.6, 'sawtooth', 0.06); },
+  dash: () => { noise(0.28, 0.16, 0, 900); tone(1100, 180, 0.28, 'sawtooth', 0.04); },
+  slam: () => { tone(130, 28, 0.45, 'sine', 0.32); noise(0.3, 0.22); },
   win: () => [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, f * 1.01, 0.6, 'triangle', 0.08, i * 0.08)),
 };
 const vibrate = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch (_) {} };
@@ -600,11 +690,13 @@ function motionJump(s0, s1, sub, onDone) {
   const c0 = centerOf(s0), c1 = centerOf(s1), u = V(s0.u);
   const h = sub === 'climb' ? 1.7 : sub === 'hop' ? 0.9 : sub === 'drop' ? 0.9 : 1.25;
   sfx.jump(); vibrate(6);
+  stretchJump(sub === 'climb' ? 1.2 : 1);
   gsap.fromTo(fx, { fovKick: 0 }, { fovKick: 6, duration: 0.2, yoyo: true, repeat: 1 });
   runMotion(sub === 'drop' ? 0.62 : 0.46, (t) => {
     vis.pos.lerpVectors(c0, c1, t).addScaledVector(u, h * 4 * t * (1 - t));
   }, 'none', () => {
     sfx.land();
+    squashLand(sub === 'drop' ? 1.3 : 1);
     burst(V(s1.b).addScaledVector(V(s1.u), 0.5), 14, 2.2, 0.5, 2, V(s1.u));
     onDone && onDone();
   });
@@ -658,7 +750,7 @@ function doAction(a) {
   switch (r.kind) {
     case 'turn': motionTurn(s0, r.to, finish(r.to)); break;
     case 'roll': motionRoll(s0, r.to, finish(r.to)); break;
-    case 'wrap': motionWrap(s0, r.to, finish(r.to)); vibrate(8); break;
+    case 'wrap': motionWrap(s0, r.to, finish(r.to)); vibrate(8); kick(0.012, 0, 0); break;
     case 'jump': motionJump(s0, r.to, r.sub, finish(r.to)); break;
     case 'blocked': if (thumb) thumb.mode = null; motionBump(s0); break;
     case 'fall': motionFall(s0, r.at, 'ins Leere gesprungen'); break;
@@ -669,6 +761,7 @@ function doPhase() {
   if (!G.L.hasPhases) { doAction('back'); return; }
   G.phase = G.phase === 1 ? 2 : 1;
   sfx.phase(); vibrate([10, 30, 10]);
+  kick(0.03, 0.4, 0);
   gsap.to(levelU.uPhaseMix, { value: G.phase === 2 ? 1 : 0, duration: 0.5, ease: 'power3.inOut' });
   gsap.fromTo(fx, { fovKick: -8 }, { fovKick: 0, duration: 0.7, ease: 'expo.out' });
   bgEvent(vis.pos, 1.4);
@@ -688,6 +781,7 @@ function arrive() {
     G.keys.add(i);
     const o = lv.keys[i];
     sfx.key(); vibrate([12, 40, 12]);
+    kick(0.02, 0, 0.12);
     burst(o.position, 60, 4, 1.1, 4);
     bgEvent(o.position, 2);
     gsap.to(o.scale, { x: 0, y: 0, z: 0, duration: 0.45, ease: 'back.in(2)' });
@@ -746,7 +840,7 @@ function loadLevel(i, { keepDeaths = false } = {}) {
   vis.prev.copy(vis.pos);
   vis.frame.copy(frameOf(G.s));
   vis.scale = 1;
-  ball.quaternion.identity();
+  ballQ.identity();
   trailPos.fill(0);
   for (let k = 0; k < TRAIL; k++) trailPos.set([vis.pos.x, vis.pos.y, vis.pos.z], k * 3);
   levelU.uReveal.value = 0;
@@ -778,6 +872,7 @@ function die(reason, animateBall = true) {
   G.deaths++; G.levelDeaths++;
   if (thumb) thumb.mode = null;
   sfx.die(); vibrate([30, 40, 60]);
+  kick(0.05, 1.2, 0.25);
   burst(vis.pos, 140, 6, 1.4, 4);
   bgEvent(vis.pos, 3);
   if (animateBall) gsap.to(vis, { scale: 0, duration: 0.25, ease: 'power2.in' });
@@ -1094,6 +1189,7 @@ const RUN = {
   segs: [], si: 0, s: 0, fi: 0, lane: 0, uT: 0, uV: 0, y: 0, vy: 0, prevY: 0, grounded: true,
   speed: 8, dist: 0, genDist: 0, shards: 0, phase: 1, turnQueued: false, sog: 0, focus: 1,
   timeScale: 1, slow: false, biome: 0, offset: new THREE.Vector3(), jumpBuf: 0, best: 0, nextId: 0,
+  moment: 1, dash: 1, dashT: 0, slam: false,
 };
 try { RUN.best = +localStorage.getItem('kippwelt-best') || 0; } catch (_) {}
 const saveBest = () => { try { localStorage.setItem('kippwelt-best', String(RUN.best)); } catch (_) {} };
@@ -1389,7 +1485,9 @@ function startRun() {
   Object.assign(RUN, {
     si: 0, s: 0, fi: 0, lane: 0, uT: 0, uV: 0, y: 0, vy: 0, prevY: 0, grounded: true, speed: 8, dist: 0, genDist: 0,
     shards: 0, phase: 1, turnQueued: false, sog: 0, focus: 1, timeScale: 1, slow: false, jumpBuf: 0,
+    moment: 1, dash: 1, dashT: 0, slam: false,
   });
+  gsap.killTweensOf(RUN);
   RUN.offset.set(0, 0, 0);
   manageSegs();
   lv.group.visible = false;
@@ -1403,7 +1501,7 @@ function startRun() {
   bgU.uBgReveal.value = 0;
   gsap.to(bgU.uBgReveal, { value: 1, duration: 2.4, ease: 'expo.out' });
   vis.scale = 1;
-  ball.quaternion.identity();
+  ballQ.identity();
   runVisual(0);
   vis.prev.copy(vis.pos);
   for (let k = 0; k < TRAIL; k++) trailPos.set([vis.pos.x, vis.pos.y, vis.pos.z], k * 3);
@@ -1421,7 +1519,7 @@ function startRun() {
 function runModeHints() {
   const el = $('hint');
   $('hudBottom').hidden = false;
-  const hints = ['Wisch links / rechts: Spur. Außen kippst du über die Kante', 'Tippen: springen', 'Pfeil erscheint: in Pfeilrichtung wischen', 'Wisch runter: Phase. Halten: Zeitlupe'];
+  const hints = ['Wisch links / rechts: Spur. Außen kippst du über die Kante', 'Tippen: springen. In der Luft hoch: Dash durch Blöcke', 'Pfeil erscheint: in Pfeilrichtung wischen', 'In der Luft runter: stampfen. Am Boden runter: Phase', 'Halten: Bullet Time'];
   hints.forEach((h, k) => hintTimers.push(setTimeout(() => {
     if (G.mode !== 'run') return;
     el.textContent = h;
@@ -1436,6 +1534,10 @@ function runDie(reason) {
   setSlowmo(false);
   musicStop();
   sfx.die(); vibrate([30, 40, 80]);
+  gsap.killTweensOf(RUN, 'moment');
+  gsap.fromTo(RUN, { moment: 0.12 }, { moment: 1, duration: 1.3, ease: 'power2.in' });
+  gsap.fromTo(fx, { after: 0.72 }, { after: 0, duration: 1.4, ease: 'power1.in' });
+  kick(0.07, 1.2, 0.18);
   burst(vis.pos, 160, 7, 1.4, 4);
   bgEvent(vis.pos, 3);
   gsap.to(vis, { scale: 0, duration: 0.2 });
@@ -1472,12 +1574,30 @@ function laneShift(dl) {
   if (RUN.lane > 1) { RUN.fi += 1; RUN.lane = -1; sfx.wrap(); vibrate(8); bgEvent(vis.pos, 0.8); }
   else if (RUN.lane < -1) { RUN.fi -= 1; RUN.lane = 1; sfx.wrap(); vibrate(8); bgEvent(vis.pos, 0.8); }
   else sfx.turn();
+  kick(0.006, 0, 0);
+}
+function shockRing(pos, normal, size = 7) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 64), new THREE.MeshBasicMaterial({ color: 0xffffff, ...ADD, side: THREE.DoubleSide }));
+  m.position.copy(pos);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  scene.add(m);
+  gsap.fromTo(m.scale, { x: 0.3, y: 0.3, z: 0.3 }, { x: size, y: size, z: size, duration: 0.7, ease: 'expo.out' });
+  gsap.to(m.material, { opacity: 0, duration: 0.7, ease: 'power2.in', onComplete: () => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); } });
+}
+// Bullet time moment: time nearly stops, then eases back.
+function bulletMoment(hold = 0.35, depth = 0.2) {
+  if (REDUCED) return;
+  gsap.killTweensOf(RUN, 'moment');
+  gsap.timeline()
+    .to(RUN, { moment: depth, duration: 0.06, ease: 'power2.out' })
+    .to(RUN, { moment: 1, duration: 0.45, ease: 'power2.in' }, `+=${hold}`);
 }
 function runJump() {
   if (RUN.grounded) {
     RUN.vy = JUMP_V; RUN.grounded = false;
     sfx.jump(); vibrate(6);
-    return;
+    stretchJump(1);
+    return true;
   }
   const seg = RUN.segs[RUN.si];
   const orb = seg.orbs.find((o) => !o.used && o.fi === RUN.fi && o.lane === RUN.lane && Math.abs(RUN.s - o.k) < 1.4 && Math.abs(RUN.y - o.h) < 1.3);
@@ -1485,12 +1605,35 @@ function runJump() {
     orb.used = true;
     RUN.vy = JUMP_V;
     sfx.key(); vibrate([6, 20, 6]);
+    stretchJump(1.3);
+    kick(0.03, 0, 0.12);
+    bulletMoment(0.25, 0.3);
     burst(orb.mesh.position, 40, 4, 0.8, 3);
     gsap.to(orb.mesh.scale, { x: 2.4, y: 2.4, z: 2.4, duration: 0.3, ease: 'expo.out' });
     gsap.to(orb.mesh.scale, { x: 0, y: 0, z: 0, duration: 0.3, delay: 0.2 });
-    return;
+    return true;
   }
-  RUN.jumpBuf = 0.14; // pressed just before landing: jump on touchdown
+  return false;
+}
+// Air dash: straight forward at 2.4x speed, gravity off, smashes through blocks.
+function runDash() {
+  if (RUN.dash < 1 || RUN.dashT > 0) return false;
+  RUN.dash = 0; RUN.dashT = 0.32; RUN.vy = 0;
+  sfx.dash(); vibrate(16);
+  stretchDash();
+  kick(0.05, 1.6, 0.06);
+  gsap.fromTo(fx, { after: 0.75 }, { after: 0, duration: 0.6, ease: 'power2.out' });
+  gsap.fromTo(fx, { fovKick: 18 }, { fovKick: 0, duration: 0.7, ease: 'expo.out' });
+  burst(vis.pos, 26, 3, 0.5, 2, _c3.set(0, 0, 1).applyQuaternion(vis.frame));
+  return true;
+}
+// Ground pound: drop hard along gravity, shockwave on impact.
+function runSlam() {
+  if (RUN.grounded || RUN.slam) return;
+  RUN.slam = true; RUN.vy = -32; RUN.dashT = 0;
+  sfx.dash(); vibrate(10);
+  stretchJump(1.3);
+  kick(0.02, 0.5, 0);
 }
 function runPhase() {
   RUN.phase = RUN.phase === 1 ? 2 : 1;
@@ -1505,7 +1648,7 @@ function runPhase() {
 }
 function runInput(dir) {
   if (G.mode !== 'run') return;
-  if (dir === 'tap') return runJump();
+  if (dir === 'tap') { if (!runJump()) RUN.jumpBuf = 0.14; return; }
   const req = turnRequired();
   if (req && dir === req) {
     RUN.turnQueued = true;
@@ -1516,14 +1659,15 @@ function runInput(dir) {
     return;
   }
   if (dir === 'left' || dir === 'right') laneShift(dir === 'right' ? 1 : -1);
-  else if (dir === 'up') runJump();
-  else runPhase();
+  else if (dir === 'up') { if (!runJump() && !runDash()) RUN.jumpBuf = 0.14; }
+  else if (RUN.grounded) runPhase();
+  else runSlam();
 }
 function setSlowmo(on) {
   if (RUN.slow === on) return;
   RUN.slow = on;
-  gsap.to(RUN, { timeScale: on ? 0.45 : 1, duration: on ? 0.25 : 0.4, ease: 'power2.out', overwrite: 'auto' });
-  if (on) { toast('fokus'); vibrate(8); }
+  gsap.to(RUN, { timeScale: on ? 0.3 : 1, duration: on ? 0.25 : 0.4, ease: 'power2.out', overwrite: false });
+  if (on) { toast('bullet time'); vibrate(8); kick(0.03, 0, 0.1); sfx.phase(); }
 }
 
 /* ---------- run simulation ---------- */
@@ -1546,34 +1690,73 @@ function transfer() {
   manageSegs();
 }
 function runStep(dt) {
-  const ts = dt * RUN.timeScale;
+  const ts = dt * RUN.timeScale * RUN.moment;
   let seg = RUN.segs[RUN.si];
   RUN.speed = speedAt(RUN.dist);
-  const adv = RUN.speed * ts;
+  const dashing = RUN.dashT > 0;
+  RUN.dashT = Math.max(0, RUN.dashT - ts);
+  RUN.dash = Math.min(1, RUN.dash + dt / 2.2);
+  const adv = RUN.speed * (dashing ? 2.4 : 1) * ts;
   RUN.s += adv; RUN.dist += adv;
   if (RUN.turnQueued && RUN.s >= seg.L) { transfer(); seg = RUN.segs[RUN.si]; }
 
   // vertical motion along the current face normal
   RUN.prevY = RUN.y;
-  RUN.vy -= GRAV * ts;
+  if (dashing) RUN.vy = 0;
+  else RUN.vy -= GRAV * (RUN.slam ? 2.2 : 1) * ts;
   RUN.y += RUN.vy * ts;
   const k = Math.round(RUN.s);
   const floor = stackAt(seg, k);
   if (RUN.vy <= 0 && RUN.prevY >= floor - 0.05 && RUN.y <= floor) {
-    if (!RUN.grounded) { sfx.land(); burst(vis.pos, 10, 2, 0.4, 2); }
+    if (!RUN.grounded) {
+      const impact = Math.min(1.6, -RUN.vy / 14);
+      if (RUN.slam) {
+        RUN.slam = false;
+        sfx.slam(); vibrate([20, 30, 40]);
+        squashLand(1.7);
+        kick(0.035, 0.9, 0.12);
+        gsap.fromTo(fx, { shake: 0.9 }, { shake: 0, duration: 0.6 });
+        const n = faceN(seg.d, RUN.fi);
+        shockRing(vis.pos.clone().addScaledVector(n, -R + 0.03), n, 8);
+        bgEvent(vis.pos, 2.6);
+        burst(vis.pos, 50, 5, 0.7, 3, n);
+      } else {
+        sfx.land();
+        squashLand(Math.max(0.5, impact));
+        burst(vis.pos, 10, 2, 0.4, 2);
+      }
+    }
     RUN.y = floor; RUN.vy = 0; RUN.grounded = true;
     if (RUN.jumpBuf > 0) { RUN.jumpBuf = 0; runJump(); }
   } else if (RUN.y > floor + 0.02) RUN.grounded = false;
   RUN.jumpBuf = Math.max(0, RUN.jumpBuf - ts);
 
   // front collision: anything taller than the ball's height ahead
-  if (stackAt(seg, Math.round(RUN.s + 0.32)) > RUN.y + 0.32) return runDie('aufgeprallt');
+  const kA = Math.round(RUN.s + 0.32);
+  if (stackAt(seg, kA) > RUN.y + 0.32) {
+    if (!dashing) return runDie('aufgeprallt');
+    // dash smashes the column in front
+    let broke = 0;
+    for (let h = 1; h <= 4; h++) {
+      const p = faceCell(seg, kA, RUN.fi, RUN.lane, h), key = kv(p);
+      const t = RUNMAP.get(key);
+      if (t === 3 || t === RUN.phase) { RUNMAP.delete(key); RUNREF.delete(key); burst(p, 30, 6, 0.8, 3); broke++; }
+    }
+    if (broke) {
+      rebuildBlocks();
+      sfx.die(); vibrate(20);
+      kick(0.04, 0.6, 0.1);
+      gsap.fromTo(fx, { shake: 0.7 }, { shake: 0, duration: 0.5 });
+    }
+  }
   if (RUN.y < -2.4) return runDie(RUN.s > seg.L + 0.5 ? 'kurve verpasst' : 'abgestürzt');
 
-  for (const sp of seg.spikes) if (sp.fi === RUN.fi && sp.lane === RUN.lane && Math.abs(RUN.s - sp.k) < 0.42 && RUN.y < 0.45) return runDie('stacheln');
+  if (!dashing) for (const sp of seg.spikes) if (sp.fi === RUN.fi && sp.lane === RUN.lane && Math.abs(RUN.s - sp.k) < 0.42 && RUN.y < 0.45) return runDie('stacheln');
   if (RUN.grounded && RUN.y < 0.05) for (const p of seg.pads) if (p.fi === RUN.fi && Math.abs(RUN.s - p.k) < 0.5) {
     RUN.vy = PAD_V; RUN.grounded = false;
     sfx.open(); vibrate(14);
+    stretchJump(1.6);
+    kick(0.02, 0.6, 0);
     burst(vis.pos, 30, 4, 0.7, 3);
     gsap.fromTo(fx, { fovKick: 10 }, { fovKick: 0, duration: 0.8, ease: 'expo.out' });
   }
@@ -1583,6 +1766,8 @@ function runStep(dt) {
     RUN.vy = Math.max(RUN.vy, 3);
     sfx.wrap(); sfx.open(); vibrate([10, 30, 10]);
     bgEvent(vis.pos, 2.4);
+    bulletMoment(0.45, 0.18);
+    kick(0.05, 0.6, 0.18);
     burst(p.mesh.position, 80, 5, 1, 3);
     gsap.fromTo(fx, { fovKick: 16 }, { fovKick: 0, duration: 0.9, ease: 'expo.out' });
     gsap.to(p.mesh.scale, { x: 1.6, y: 1.6, z: 1.6, duration: 0.5, ease: 'expo.out' });
@@ -1656,7 +1841,7 @@ function runCamera(dt) {
 let hudTick = 0;
 function runFrame(dt) {
   if (G.mode === 'run') runStep(dt);
-  else if (G.mode === 'rundying') { RUN.vy -= GRAV * dt * 0.5; RUN.y += RUN.vy * dt * 0.5; }
+  else if (G.mode === 'rundying') { const t2 = dt * RUN.moment; RUN.vy -= GRAV * t2 * 0.5; RUN.y += RUN.vy * t2 * 0.5; }
   if (G.mode === 'run' || G.mode === 'rundying') runVisual(dt);
   runCamera(dt);
 
@@ -1696,6 +1881,7 @@ function runFrame(dt) {
     $('runDist').textContent = Math.floor(RUN.dist) + ' m';
     $('runShards').textContent = String(RUN.shards);
     $('focusBar').style.transform = `scaleX(${RUN.focus})`;
+    $('dashBar').style.transform = `scaleX(${RUN.dash})`;
     $('sogBar').style.transform = `scaleX(${RUN.sog / 8})`;
   }
 }
@@ -1744,7 +1930,13 @@ $('runMenuBtn').addEventListener('click', () => showTitle());
 /* ------------------------------------------------------------------ */
 /* Camera + loop                                                       */
 /* ------------------------------------------------------------------ */
-const fx = { fovKick: 0, shake: 0 };
+const fx = { fovKick: 0, shake: 0, ca: 0, blur: 0, after: 0, flash: 0 };
+function kick(ca = 0, blur = 0, flash = 0) {
+  if (REDUCED) return;
+  if (ca) gsap.fromTo(fx, { ca }, { ca: 0, duration: 0.7, ease: 'expo.out', overwrite: false });
+  if (blur) gsap.fromTo(fx, { blur }, { blur: 0, duration: 0.6, ease: 'power2.out', overwrite: false });
+  if (flash) gsap.fromTo(fx, { flash }, { flash: 0, duration: 0.35, ease: 'power2.out', overwrite: false });
+}
 const camState = { ready: false, pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 const _m = new THREE.Matrix4(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion(), _p2 = new THREE.Vector3();
@@ -1783,7 +1975,7 @@ function cameraTarget(dt) {
 
 const clock = new THREE.Clock();
 let frames = 0, slow = 0;
-const _spin = new THREE.Vector3(), _axis = new THREE.Vector3(), _sq = new THREE.Quaternion();
+const _spin = new THREE.Vector3(), _axis = new THREE.Vector3(), _sq = new THREE.Quaternion(), _sv = new THREE.Vector3(), _c2 = new THREE.Vector3(), _c3 = new THREE.Vector3();
 
 function loop() {
   requestAnimationFrame(loop);
@@ -1810,11 +2002,23 @@ function loop() {
   if (dist > 1e-5) {
     _axis.crossVectors(up, _spin).normalize();
     _sq.setFromAxisAngle(_axis, dist / R);
-    ball.quaternion.premultiply(_sq);
+    ballQ.premultiply(_sq);
   }
+  // velocity stretch (frame-local), times the cartoon impulse, volume preserved
+  const inv = dt > 0 ? 1 / dt : 0;
+  _sv.copy(_spin).multiplyScalar(inv);
+  const fwd = _c2.set(0, 0, -1).applyQuaternion(vis.frame);
+  const vn = Math.abs(_c3.subVectors(vis.pos, vis.prev).dot(up)) * inv;
+  const vf = Math.abs(_sv.dot(fwd));
+  const vl = Math.sqrt(Math.max(0, _sv.lengthSq() - vf * vf));
+  let sx = squash.x * (1 + Math.min(vl / 40, 0.5)), sy = squash.y * (1 + Math.min(vn / 45, 0.4)), sz = squash.z * (1 + Math.min(vf / 90, 0.22));
+  if (REDUCED) { sx = sy = sz = 1; }
+  const vol = Math.cbrt(sx * sy * sz);
   vis.prev.copy(vis.pos);
-  ball.position.copy(vis.pos);
-  ball.scale.setScalar(Math.max(0.0001, vis.scale) * (G.mode === 'title' ? 0.0001 : 1));
+  ballRig.position.copy(vis.pos);
+  ballRig.quaternion.copy(vis.frame);
+  ballRig.scale.set(sx / vol, sy / vol, sz / vol).multiplyScalar(Math.max(0.0001, vis.scale) * (G.mode === 'title' ? 0.0001 : 1));
+  ball.quaternion.copy(vis.frame).invert().multiply(ballQ);
   halo.position.copy(vis.pos);
   halo.material.opacity = vis.scale * (G.mode === 'title' ? 0 : 1);
   bgU.uWell.value.lerp(_a.copy(vis.pos).sub(bgRoot.position), 1 - Math.exp(-dt * 0.8));
@@ -1861,7 +2065,14 @@ function loop() {
     camera.rotateX(Math.cos(s * 1.3) * 0.02 * fx.shake);
   }
   camera.updateProjectionMatrix();
-  renderer.render(scene, camera);
+  const inRunFx = G.mode === 'run' || G.mode === 'rundying';
+  const speedK = inRunFx ? clamp((RUN.speed - 8) / 11, 0, 1) : 0;
+  const slowK = inRunFx ? 1 - RUN.timeScale * RUN.moment : 0;
+  renderFrame(
+    (REDUCED ? 0 : 0.0018 + speedK * 0.004 + slowK * 0.012) + fx.ca,
+    (REDUCED ? 0 : speedK * 0.45) + fx.blur,
+    REDUCED ? 0 : Math.min(0.8, Math.max(fx.after, slowK * 0.85)),
+    fx.flash);
 
   frames++;
   if (frames > 30 && frames < 150 && dt > 1 / 40) slow++;
@@ -1877,4 +2088,4 @@ showTitle();
 loop();
 
 // debug / test hook
-window.kippwelt = { G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput };
+window.kippwelt = { G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };
