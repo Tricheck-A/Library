@@ -598,9 +598,9 @@ function drainQueue() {
   continueRoll();
 }
 
-// Keep rolling only once the thumb has rested on the screen after the swipe,
-// so a normal swipe (finger still lifting) moves exactly one field.
-const ROLL_HOLD_MS = 420;
+// Joystick feel: while the thumb stays down after pushing up, the ball keeps rolling.
+// The short grace period keeps a quick flick (finger already lifting) to one field.
+const ROLL_HOLD_MS = 260;
 function continueRoll() {
   if (!thumb || thumb.mode !== 'roll' || G.busy || G.mode !== 'play') return;
   const wait = thumb.rollSince + ROLL_HOLD_MS - performance.now();
@@ -918,8 +918,8 @@ $('nextBtn').addEventListener('click', () => startPlay(Math.min(G.li + 1, LEVELS
 /* ------------------------------------------------------------------ */
 /* Thumb input                                                         */
 /* ------------------------------------------------------------------ */
-// One pointer only. Slide up = roll (keeps rolling while the thumb rests),
-// slide sideways = turn, slide down = phase, tap = jump, hold still = overview.
+// One pointer only. Slide up = roll (keeps rolling while the thumb stays down),
+// slide sideways = turn once and stop, slide up again = roll on, slide down = phase, tap = jump, hold still = overview.
 const fxLayer = $('fx');
 let thumb = null;
 const SWIPE = 26, HOLD_MS = 340;
@@ -978,7 +978,7 @@ canvas.addEventListener('pointermove', (e) => {
   arrowAt(e.clientX, e.clientY, dir);
   if (dir === 'up') { thumb.mode = 'roll'; thumb.rollSince = performance.now(); doAction('fwd'); }
   else if (dir === 'down') { thumb.mode = null; doAction('phase'); }
-  else doAction(dir);
+  else { thumb.mode = null; doAction(dir); } // turn once, then wait for the next push up
 });
 function thumbUp(e) {
   if (!thumb || e.pointerId !== thumb.id) return;

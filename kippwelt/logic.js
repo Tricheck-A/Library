@@ -31,7 +31,7 @@ export const LEVELS = [
     shards: [at(2, 0, 3, '+y'), at(2, 0, 2, '+y'), at(2, 0, 1, '+y'), at(2, 0, 0, '-z'), at(4, 0, 2, '+x'), at(0, 0, 4, '-y'), at(4, 0, 4, '-y')],
     spikes: [],
     exit: at(4, 0, 0, '+y'),
-    hints: ['Wisch nach oben: rollen. Daumen liegen lassen: weiterrollen', 'Wisch zur Seite: drehen', 'Roll über die Kante. Die Schwerkraft kippt mit', 'Halten: Übersicht'],
+    hints: ['Wisch nach oben: ein Feld. Daumen halten: durchrollen', 'Daumen halten und zur Seite schieben: abbiegen. Wieder hoch: weiterrollen', 'Roll über die Kante. Die Schwerkraft kippt mit', 'Halten: Übersicht'],
   },
   {
     id: 'I-2', world: 0, name: 'sprung', time: 100,
