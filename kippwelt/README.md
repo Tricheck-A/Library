@@ -35,6 +35,14 @@ Hindernisse: Blöcke und Türme, Stacheln, Lücken, Schieber (gleiten über die 
 
 Ab 80 m und danach alle 90 bis 170 m verwandelt sich die Welt für 170 bis 240 m: **Spirale** (Strecke, Schacht und Hintergrund drehen sich korkenzieherartig um die Bahn), **Trichter** (die Strecke stürzt vor dir in eine Senke), **Welle**, **Schlange** und **Negativ** (alles invertiert). Zonen kombinieren sich (zu Beginn selten, später häufiger). Die Verformung wirkt nur vor der Kugel und glättet sich beim Näherkommen, rund um die Kugel bleibt alles flach und spielbar. Technisch ist das eine gemeinsame Vertex-Funktion `warpRun`, die alle Shader und auch die eingebauten Materialien nutzen.
 
+## Power-ups und Einführung
+
+Alle 170 bis 290 m liegt ein Power-up auf der Strecke, abwechselnd **Schild** (fängt den nächsten Treffer ab und verwandelt ihn in einen kurzen Dash, rettet auch eine verpasste Kurve), **Höhenflug** (6 s in drei Blöcken Höhe über allen Hindernissen, landet nur auf sicherem Boden) und **Sog** (zieht 8 s lang Splitter an). Hindernistypen werden nach und nach freigeschaltet: Blöcke, Wände und Stacheln von Anfang an, Lücken ab 30 m, Laser ab 150 m, Sprungfelder ab 200 m, Kipp-Platten ab 250 m, Stampfer und Phasenringe ab 300 m, Bröckelboden ab 350 m, Schieber ab 400 m, Kippringe ab 450 m, hohe Laser ab 500 m, Luftringe ab 550 m, Drehringe ab 600 m. Beim ersten Auftauchen eines Typs erklärt ein Hinweis, was zu tun ist (einmal pro Gerät).
+
+## Prüfläufe
+
+`tools/playtest-bot.js` spielt den Lauf-Modus ohne Grafik mit einer Vorausplanung über die Kollisionsregeln; `tools/playtest.cjs` startet ihn mit Playwright. Ein Tod, den das Modell nicht erwartet hat, deutet auf einen Spielbug, eine Stelle ohne überlebende Eingabefolge auf eine unfaire Strecke.
+
 ## Fairness-Regeln des Generators
 
 Jedes Muster auf einer Seite ist ohne Dash schaffbar: eine Spur bleibt frei, das Hindernis ist überspringbar oder ein Sprungfeld trägt dich darüber. Ringförmige Wände (Phasenringe, Kippringe, Drehringe) kommen nie direkt hintereinander. Der Boden-Dash löst nur aus, wenn das erste Hindernis in deiner Spur zu hoch zum Springen ist; zerschlagene Blöcke verlängern den Dash, und über einem Loch trägt er dich bis zum nächsten Boden. Kleine Kanten bis etwa einer halben Blockhöhe steigt die Kugel hinauf.

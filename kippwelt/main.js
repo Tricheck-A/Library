@@ -1594,13 +1594,23 @@ function addPortal(seg, k) {
   seg.group.add(g);
   seg.portals.push({ k, passed: false, mesh: g });
 }
-function addSog(seg, k, fi, lane) {
+const shieldGeo = new THREE.OctahedronGeometry(0.26);
+const shieldEdges = new THREE.EdgesGeometry(shieldGeo);
+const shieldRing = new THREE.TorusGeometry(0.42, 0.02, 6, 32);
+const flugGeo = new THREE.ConeGeometry(0.24, 0.55, 4);
+const flugEdges = new THREE.EdgesGeometry(flugGeo);
+[shieldGeo, shieldEdges, shieldRing, flugGeo, flugEdges].forEach((g) => { g.userData.keep = true; });
+// Power-ups: sog (magnet), schild (absorbs one hit), flug (6 s flight above everything).
+function addPower(seg, k, fi, lane, type) {
   const n = faceN(seg.d, fi);
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(sogGeo, black), new THREE.LineSegments(sogEdges, lineMat));
-  g.position.copy(faceCell(seg, k, fi, lane)).addScaledVector(n, 0.5 + R + 0.25);
+  if (type === 'sog') g.add(new THREE.Mesh(sogGeo, black), new THREE.LineSegments(sogEdges, lineMat));
+  else if (type === 'schild') g.add(new THREE.Mesh(shieldGeo, black), new THREE.LineSegments(shieldEdges, lineMat), new THREE.Mesh(shieldRing, white));
+  else g.add(new THREE.Mesh(flugGeo, black), new THREE.LineSegments(flugEdges, lineMat), new THREE.Mesh(shieldRing, white));
+  g.position.copy(faceCell(seg, k, fi, lane)).addScaledVector(n, 0.5 + R + 0.3);
   seg.group.add(g);
-  seg.items.push({ type: 'sog', pos: g.position.clone(), mesh: g, alive: true });
+  seg.items.push({ type, pos: g.position.clone(), mesh: g, alive: true, k });
+  mark(seg, k, type);
 }
 
 const boxGeo = new THREE.BoxGeometry(0.92, 0.92, 0.92);
@@ -1715,23 +1725,42 @@ function weighted(list) {
 // Every face pattern is beatable on its own side without the dash:
 // one lane stays free, or the obstacle can be jumped, or a pad launches you.
 const other = (l) => -l;
-function facePattern(seg, k, fi, D) {
+// Obstacles are introduced step by step (distance in metres when a type can first appear),
+// like Temple Run / Subway Surfers: the basics first, the special stuff later.
+const INTRO = { block: 0, row: 0, tower: 0, spike: 0, gap: 30, spikes: 60, laser: 150, pad: 200, flip: 250, phase: 300, crusher: 300, crumble: 350, sweeper: 400, portal: 450, laserHigh: 500, orb: 550, ring: 600 };
+const HINTS = {
+  block: 'Block: springen oder Spur wechseln', row: 'Blockreihe: drüberspringen, oben weiterrollen', tower: 'Hohe Wand: Spur wechseln oder hochwischen für den Dash',
+  spike: 'Stacheln: springen oder ausweichen', spikes: 'Stachelreihe: springen', gap: 'Lücke: springen', laser: 'Tiefer Laser: springen',
+  pad: 'Sprungfeld: schleudert dich über die Türme', flip: 'Kipp-Platte: wirft dich auf die Gegenseite', phase: 'Phasenring: nach unten wischen, dann bist du durch',
+  crusher: 'Stampfer: abpassen oder Spur wechseln', crumble: 'Rissiger Boden bricht gleich weg: Spur wechseln', sweeper: 'Schieber: die Lücke abpassen',
+  portal: 'Kippring: dreht dich auf die Gegenseite des Balkens', laserHigh: 'Hoher Laser: am Boden bleiben, nicht springen', orb: 'Ring in der Luft: im Sprung nochmal tippen',
+  ring: 'Drehring: durch die Lücke rollen oder durchdashen',
+  sog: 'Sog: zieht Splitter an', schild: 'Schild: fängt den nächsten Treffer ab', flug: 'Höhenflug: 6 s über allen Hindernissen',
+};
+let seenHints = {};
+try { seenHints = JSON.parse(localStorage.getItem('kippwelt-seen') || '{}'); } catch (_) {}
+const mark = (seg, k, type) => seg.marks.push({ k, type });
+const isOpen = (type, dist) => dist >= INTRO[type];
+// Every face pattern is beatable on its own side without the dash:
+// one lane stays free, or the obstacle can be jumped, or a pad launches you.
+function facePattern(seg, k, fi, D, dist) {
+  const g = (type, w) => (isOpen(type, dist) ? w : 0);
   const fn = weighted([
     [1.2 - 0.8 * D, () => { shardLine(seg, k, fi, pickLane(), 4); return 0; }],
-    [2, () => { const l = pickLane(); addObstacle(seg, k, fi, l, 1); shardLine(seg, k - 1, fi, other(l), 3); return 0; }],
-    [1.4, () => { ALL.forEach((l) => addObstacle(seg, k, fi, l, 1)); shardLine(seg, k, fi, pickLane(), 2, 1); return 1; }],
-    [1.2 + D, () => { const l = pickLane(); addObstacle(seg, k, fi, l, 2); addObstacle(seg, k, fi, 0, 2); shardLine(seg, k - 1, fi, other(l), 3); return 0; }],
-    [1.6, () => { addSpike(seg, k, fi, pickLane()); return 0; }],
-    [1.1 + D, () => { addSpike(seg, k, fi, -1); addSpike(seg, k, fi, 1); shardArc(seg, k - 2, fi, pickLane(), 4); return 0; }],
-    [1.4 + D, () => { const len = D > 0.45 ? 3 : 2; addGap(seg, k, fi, len); shardArc(seg, k - 1, fi, pickLane(), len + 1); return len; }],
-    [0.6 + D * 0.8, () => { addPad(seg, k, fi); ALL.forEach((l) => { addObstacle(seg, k + 3, fi, l, 2); addObstacle(seg, k + 4, fi, l, 2); }); shardArc(seg, k, fi, pickLane(), 6); return 8; }],
-    [0.5 + D * 1.2, () => { addCrusher(seg, k, fi, pickLane()); return 0; }],
-    [0.7 + D * 0.8, () => { const l = pickLane(); addCrumble(seg, k, fi, l, 3); shardLine(seg, k, fi, l, 3, 0.2); return 3; }],
-    [0.6 + D * 0.6, () => { const l = pickLane(); addFlip(seg, k, fi, l); addSpike(seg, k + 3, fi, -1); addSpike(seg, k + 3, fi, 1); return 3; }],
-    [0.4 + D * 1.2, () => { addSweeper(seg, k, fi); return 1; }],
-    [0.8 + D, () => { addLaser(seg, k, fi, false); shardArc(seg, k - 2, fi, pickLane(), 4); return 0; }],
-    [D > 0.2 ? 0.8 : 0, () => { addLaser(seg, k, fi, true); shardLine(seg, k - 1, fi, pickLane(), 3); return 0; }],
-    [D > 0.3 ? 0.9 : 0, () => { addGap(seg, k, fi, 5); [-1, 1].forEach((l) => addOrb(seg, k + 1, fi, l, 1.45)); return 5; }],
+    [g('block', 2), () => { const l = pickLane(); addObstacle(seg, k, fi, l, 1); shardLine(seg, k - 1, fi, other(l), 3); mark(seg, k, 'block'); return 0; }],
+    [g('row', 1.4), () => { ALL.forEach((l) => addObstacle(seg, k, fi, l, 1)); shardLine(seg, k, fi, pickLane(), 2, 1); mark(seg, k, 'row'); return 1; }],
+    [g('tower', 1.2 + D), () => { const l = pickLane(); addObstacle(seg, k, fi, l, 2); addObstacle(seg, k, fi, 0, 2); shardLine(seg, k - 1, fi, other(l), 3); mark(seg, k, 'tower'); return 0; }],
+    [g('spike', 1.6), () => { addSpike(seg, k, fi, pickLane()); mark(seg, k, 'spike'); return 0; }],
+    [g('spikes', 1.1 + D), () => { addSpike(seg, k, fi, -1); addSpike(seg, k, fi, 1); shardArc(seg, k - 2, fi, pickLane(), 4); mark(seg, k, 'spikes'); return 0; }],
+    [g('gap', 1.4 + D), () => { const len = D > 0.45 ? 3 : 2; addGap(seg, k, fi, len); shardArc(seg, k - 1, fi, pickLane(), len + 1); mark(seg, k, 'gap'); return len; }],
+    [g('pad', 0.6 + D * 0.8), () => { addPad(seg, k, fi); ALL.forEach((l) => { addObstacle(seg, k + 3, fi, l, 2); addObstacle(seg, k + 4, fi, l, 2); }); shardArc(seg, k, fi, pickLane(), 6); mark(seg, k, 'pad'); return 8; }],
+    [g('crusher', 0.5 + D * 1.2), () => { addCrusher(seg, k, fi, pickLane()); mark(seg, k, 'crusher'); return 0; }],
+    [g('crumble', 0.7 + D * 0.8), () => { const l = pickLane(); addCrumble(seg, k, fi, l, 3); shardLine(seg, k, fi, l, 3, 0.2); mark(seg, k, 'crumble'); return 3; }],
+    [g('flip', 0.6 + D * 0.6), () => { const l = pickLane(); addFlip(seg, k, fi, l); addSpike(seg, k + 3, fi, -1); addSpike(seg, k + 3, fi, 1); mark(seg, k, 'flip'); return 3; }],
+    [g('sweeper', 0.4 + D * 1.2), () => { addSweeper(seg, k, fi); mark(seg, k, 'sweeper'); return 1; }],
+    [g('laser', 0.8 + D), () => { addLaser(seg, k, fi, false); shardArc(seg, k - 2, fi, pickLane(), 4); mark(seg, k, 'laser'); return 0; }],
+    [g('laserHigh', 0.8), () => { addLaser(seg, k, fi, true); shardLine(seg, k - 1, fi, pickLane(), 3); mark(seg, k, 'laserHigh'); return 0; }],
+    [g('orb', 0.9), () => { addGap(seg, k, fi, 5); [-1, 1].forEach((l) => addOrb(seg, k + 1, fi, l, 1.45)); mark(seg, k, 'orb'); return 5; }],
   ]);
   return fn();
 }
@@ -1750,9 +1779,9 @@ function makeSeg(prev) {
   if (prev && prev.turn === turn && prev.prevTurn === turn) turn = turn === 'left' ? 'right' : 'left';
   const seg = {
     id: RUN.nextId++, o, d, r: new THREE.Vector3().crossVectors(d, Y), L, turn, prevTurn: prev ? prev.turn : null,
-    cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], crushers: [], crumbles: [], flips: [], rings: [], group: new THREE.Group(), start: RUN.genDist,
+    marks: [], cells: [], spikes: [], pads: [], orbs: [], portals: [], shards: [], items: [], sweepers: [], lasers: [], crushers: [], crumbles: [], flips: [], rings: [], group: new THREE.Group(), start: RUN.genDist,
   };
-  for (let k = prev ? 1 : -8; k <= L; k++) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+  for (let k = prev ? 0 : -8; k <= L; k++) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
     if (i || j) setCell(seg, o.clone().addScaledVector(d, k).addScaledVector(Y, i).addScaledVector(seg.r, j), i && j ? 0 : 5, RUN.genDist + k, Y.clone().multiplyScalar(i).addScaledVector(seg.r, j).normalize());
   }
   let k = prev ? 9 : 44; // first segment: long run-in while the hints show
@@ -1760,19 +1789,27 @@ function makeSeg(prev) {
   while (k < L - 12) {
     const dd = Math.min(1, (seg.start + k) / 1800);
     let extra = 0;
+    const dist = seg.start + k;
     const g = lastGlobal ? 1 : Math.random(); // never two ring-shaped walls in a row
-    lastGlobal = g < 0.18 + dd * 0.1;
-    if (g < 0.045 + dd * 0.03) { addPortal(seg, k); extra = 3; }
-    else if (dd > 0.2 && g < 0.1 + dd * 0.06) { addRing(seg, k); extra = 2; }
-    else if (g < 0.18 + dd * 0.1) {
+    lastGlobal = false;
+    if (isOpen('portal', dist) && g < 0.045 + dd * 0.03) { addPortal(seg, k); mark(seg, k, 'portal'); extra = 3; lastGlobal = true; }
+    else if (isOpen('ring', dist) && g < 0.1 + dd * 0.06) { addRing(seg, k); mark(seg, k, 'ring'); extra = 2; lastGlobal = true; }
+    else if (isOpen('phase', dist) && g < 0.18 + dd * 0.1) {
       const p = Math.random() < 0.5 ? 1 : 2;
       for (let fi = 0; fi < 4; fi++) for (let l = -1; l <= 1; l++) for (let h = 1; h <= 2; h++) setCell(seg, faceCell(seg, k, fi, l, h), p, seg.start + k, faceN(seg.d, fi));
-      extra = 2;
+      mark(seg, k, 'phase');
+      extra = 2; lastGlobal = true;
     } else {
-      for (let fi = 0; fi < 4; fi++) extra = Math.max(extra, facePattern(seg, k, fi, dd));
-      if (Math.random() < 0.06) addSog(seg, k + 3, (Math.random() * 4) | 0, pickLane());
+      for (let fi = 0; fi < 4; fi++) extra = Math.max(extra, facePattern(seg, k, fi, dd, dist));
     }
-    k += Math.round(Math.max(6.5, speedAt(seg.start + k) * 0.6 + 3) + extra);
+    // power-ups every 170-290 m, a little before the next slot
+    if (dist > RUN.nextPower) {
+      RUN.nextPower = dist + 170 + Math.random() * 120;
+      const type = ['schild', 'flug', 'sog'][RUN.powerIdx++ % 3];
+      addPower(seg, k - 3, (Math.random() * 4) | 0, pickLane(), type);
+    }
+    // early on the gaps between obstacles are wider; they tighten towards 1800 m
+    k += Math.round(Math.max(6.5, speedAt(dist) * 0.5 + 3) + (1 - dd) * 3.5 + extra);
   }
   if (seg.shards.length) {
     const im = new THREE.InstancedMesh(shardGeo, white, seg.shards.length);
@@ -1853,7 +1890,7 @@ function startRun() {
   Object.assign(RUN, {
     si: 0, s: 0, fi: 0, lane: -1, uT: -1, uV: -1, y: 0, vy: 0, prevY: 0, grounded: true, speed: 8, dist: 0, genDist: 0,
     shards: 0, phase: 1, turnQueued: false, sog: 0, focus: 1, timeScale: 1, slow: false, jumpBuf: 0,
-    moment: 1, dash: 1, dashT: 0, slam: false, zone: null, nextZone: 80,
+    moment: 1, dash: 1, dashT: 0, slam: false, zone: null, nextZone: 80, shield: false, flight: 0, invuln: 0, nextPower: 120, powerIdx: 0,
   });
   gsap.killTweensOf(RUN);
   resetWarp();
@@ -1889,7 +1926,7 @@ function startRun() {
 function runModeHints() {
   const el = $('hint');
   $('hudBottom').hidden = false;
-  const hints = ['Wisch links / rechts: Spur. Außen kippst du über die Kante', 'Tippen: springen. In der Luft hoch: Dash durch Blöcke', 'Pfeil erscheint: in Pfeilrichtung wischen', 'In der Luft runter: stampfen. Am Boden runter: Phase', 'Halten: Bullet Time'];
+  const hints = ['Wisch links / rechts: Spur wechseln. Außen kippst du über die Kante', 'Tippen: springen', 'Pfeil erscheint: in Pfeilrichtung wischen'];
   hints.forEach((h, k) => hintTimers.push(setTimeout(() => {
     if (G.mode !== 'run') return;
     el.textContent = h;
@@ -1899,6 +1936,19 @@ function runModeHints() {
 }
 function runDie(reason) {
   if (G.mode !== 'run') return;
+  if (RUN.invuln > 0 || RUN.shield) {
+    if (RUN.shield) {
+      RUN.shield = false;
+      RUN.invuln = 1;
+      sfx.smash(); vibrate([20, 30, 20]); toast('schild weg');
+      kick(0.05, 0.8, 0.2);
+      burst(vis.pos, 80, 6, 0.9, 3);
+    }
+    if (reason === 'kurve verpasst') { RUN.turnQueued = true; RUN.s = Math.min(RUN.s, RUN.segs[RUN.si].L); transfer(); }
+    RUN.dashT = Math.max(RUN.dashT, 0.3); RUN.dashExt = 0;
+    if (RUN.y < 0) { RUN.y = 0.3; RUN.vy = 10; }
+    return;
+  }
   if (RUN.god) { RUN.godHits = (RUN.godHits || 0) + 1; RUN.lastHit = reason; if (RUN.y < -2) { RUN.y = 0; RUN.vy = 0; } return; }
   G.mode = 'rundying';
   setSlowmo(false);
@@ -1932,7 +1982,7 @@ function runDie(reason) {
 /* ---------- run actions ---------- */
 function turnRequired() {
   const seg = RUN.segs[RUN.si];
-  const win = 6 + RUN.speed * 0.35;
+  const win = 9 + RUN.speed * 0.45;
   if (seg.L - RUN.s > win || RUN.s > seg.L + 0.6 || RUN.turnQueued) return null;
   const nd = new THREE.Vector3().crossVectors(seg.d, Y);
   if (seg.turn === 'left') nd.negate();
@@ -2090,8 +2140,7 @@ function runInput(dir) {
   }
   if (dir === 'left' || dir === 'right') laneShift(dir === 'right' ? 1 : -1);
   else if (dir === 'up') { if (!runJump() && !runDash()) RUN.jumpBuf = 0.14; }
-  else if (RUN.grounded) runPhase();
-  else runSlam();
+  else { runPhase(); if (!RUN.grounded) runSlam(); } // down always switches the phase; in the air it also slams
 }
 function setSlowmo(on) {
   if (RUN.slow === on) return;
@@ -2133,6 +2182,20 @@ function runStep(dt) {
   RUN.s += adv; RUN.dist += adv;
   if (RUN.turnQueued && RUN.s >= seg.L) { transfer(); seg = RUN.segs[RUN.si]; }
 
+  if (RUN.flight > 0) {
+    RUN.flight -= ts;
+    if (RUN.flight <= 0) {
+      const land = stackAt(seg, Math.round(RUN.s + 2));
+      if ((land === -Infinity || land > 0) && (RUN.flightExt || 0) < 2) { RUN.flight = 0.15; RUN.flightExt = (RUN.flightExt || 0) + 0.15; }
+      else { RUN.flight = 0; RUN.flightExt = 0; RUN.vy = 0; RUN.invuln = 0.4; }
+    }
+    if (RUN.flight > 0) {
+      RUN.y += (3.2 - RUN.y) * (1 - Math.exp(-ts * 5));
+      RUN.vy = 0; RUN.grounded = false; RUN.prevY = RUN.y;
+      collectAndFinish(dt, seg);
+      return;
+    }
+  }
   // vertical motion along the current face normal
   RUN.prevY = RUN.y;
   if (dashing) RUN.vy = 0;
@@ -2140,7 +2203,7 @@ function runStep(dt) {
   RUN.y += RUN.vy * ts;
   const k = Math.round(RUN.s);
   const floor = stackAt(seg, k);
-  if (RUN.vy <= 0 && RUN.prevY >= floor - 0.05 && RUN.y <= floor) {
+  if (RUN.vy <= 0 && RUN.y <= floor && (RUN.prevY >= floor - 0.05 || RUN.y > floor - 0.45)) {
     if (!RUN.grounded) {
       const impact = Math.min(1.6, -RUN.vy / 14);
       if (RUN.slam) {
@@ -2228,10 +2291,11 @@ function runStep(dt) {
   }
   for (const rg of seg.rings) {
     if (!rg.alive || Math.abs(RUN.s - rg.k) > 0.45 || RUN.y > 1.0) continue;
-    const rel = vis.pos.clone().sub(rg.mesh.position);
+    // logical lane and computed ring angle, like every other obstacle (not the lagging visuals)
+    const rel = faceN(seg.d, RUN.fi).multiplyScalar(1.5 + R + RUN.y).addScaledVector(faceN(seg.d, RUN.fi + 1), RUN.lane);
     const th = Math.atan2(rel.dot(Y), rel.dot(seg.r));
-    const phi = rg.spin.rotation.z;
-    const hit = rg.angles.some((a) => { let dd = th - (a + phi); dd = Math.atan2(Math.sin(dd), Math.cos(dd)); return Math.abs(dd) < 0.34; });
+    const phi = rg.ph + U.time.value * rg.w;
+    const hit = rg.angles.some((a) => { let dd = th - (a + phi); dd = Math.atan2(Math.sin(dd), Math.cos(dd)); return Math.abs(dd) < 0.28; }); // a bit smaller than the visible blocks: grazing is forgiven
     if (!hit) continue;
     if (!dashing) return runDie('drehring');
     rg.alive = false; rg.mesh.visible = false;
@@ -2247,7 +2311,7 @@ function runStep(dt) {
   if (!dashing) for (const lz of seg.lasers) {
     if (lz.fi !== RUN.fi || Math.abs(RUN.s - lz.k) > 0.35) continue;
     if (!lz.high && RUN.y < 0.55) return runDie('laser');
-    if (lz.high && RUN.y > 0.7 && RUN.y < 2.1) return runDie('laser');
+    if (lz.high && RUN.y > 1.1 && RUN.y < 1.9) return runDie('laser'); // matches where the beam visibly touches the ball
   }
   if (!dashing) for (const sp of seg.spikes) if (sp.fi === RUN.fi && sp.lane === RUN.lane && Math.abs(RUN.s - sp.k) < 0.42 && RUN.y < 0.45) return runDie('stacheln');
   if (RUN.grounded && RUN.y < 0.05) for (const p of seg.pads) if (p.fi === RUN.fi && Math.abs(RUN.s - p.k) < 0.5) {
@@ -2257,14 +2321,6 @@ function runStep(dt) {
     kick(0.02, 0.6, 0);
     burst(vis.pos, 30, 4, 0.7, 3);
     gsap.fromTo(fx, { fovKick: 10 }, { fovKick: 0, duration: 0.8, ease: 'expo.out' });
-  }
-  if (!RUN.portalHint) for (const p of seg.portals) if (!p.passed && p.k - RUN.s < 18 && p.k > RUN.s) {
-    RUN.portalHint = true;
-    const el = $('hint');
-    $('hudBottom').hidden = false;
-    el.textContent = 'Kippring voraus: Er dreht dich auf die Gegenseite des Balkens';
-    animate(el, { opacity: [0, 1], translateY: [8, 0], duration: 400, ease: 'outExpo' });
-    hintTimers.push(setTimeout(() => { $('hudBottom').hidden = true; }, 3200));
   }
   for (const p of seg.portals) if (!p.passed && RUN.s >= p.k) {
     p.passed = true;
@@ -2279,8 +2335,11 @@ function runStep(dt) {
     gsap.to(p.mesh.scale, { x: 1.6, y: 1.6, z: 1.6, duration: 0.5, ease: 'expo.out' });
   }
 
+  collectAndFinish(dt, seg);
+}
+function collectAndFinish(dt, seg) {
   // pickups in the current and next segment
-  const reach = RUN.sog > 0 ? 3.6 : 0.8;
+  const reach = RUN.sog > 0 || RUN.flight > 0 ? 3.6 : 0.8;
   for (let si = RUN.si; si < Math.min(RUN.segs.length, RUN.si + 2); si++) {
     const sg = RUN.segs[si];
     sg.shards.forEach((sh, i) => {
@@ -2296,14 +2355,16 @@ function runStep(dt) {
       if (!it.alive || it.pos.distanceToSquared(vis.pos) > 1) return;
       it.alive = false;
       it.mesh.visible = false;
-      RUN.sog = 8;
-      sfx.sog(); toast('sog'); vibrate([10, 30, 10]);
+      sfx.sog(); vibrate([10, 30, 10]);
       burst(it.pos, 60, 4, 1, 3);
-      $('sogMeter').hidden = false;
+      kick(0.03, 0, 0.12);
+      if (it.type === 'sog') { RUN.sog = 8; toast('sog'); }
+      else if (it.type === 'schild') { RUN.shield = true; toast('schild'); }
+      else { RUN.flight = 6; RUN.vy = 9; RUN.grounded = false; toast('höhenflug'); }
     });
   }
   RUN.sog = Math.max(0, RUN.sog - dt);
-  if (RUN.sog === 0) $('sogMeter').hidden = true;
+  RUN.invuln = Math.max(0, (RUN.invuln || 0) - dt);
 
   // focus meter: drains in slow motion, refills otherwise
   if (RUN.slow) { RUN.focus -= dt / 2.5; if (RUN.focus <= 0) { RUN.focus = 0; setSlowmo(false); } }
@@ -2415,8 +2476,34 @@ const decoU = { ...WARP, uTime: U.time, uTravel: { value: 0 }, uPx: U.px, uLen: 
   deco.add(lines);
 })();
 
+// Explain each obstacle type the first time it comes into view (remembered on this device).
+function showFirstHints() {
+  for (let si = RUN.si; si < Math.min(RUN.segs.length, RUN.si + 2); si++) {
+    const sg = RUN.segs[si];
+    const base = si === RUN.si ? -RUN.s : RUN.segs[RUN.si].L - RUN.s;
+    for (const m of sg.marks) {
+      const ahead = m.k + base;
+      if (ahead < 0 || ahead > 26 || seenHints[m.type]) continue;
+      seenHints[m.type] = true;
+      try { localStorage.setItem('kippwelt-seen', JSON.stringify(seenHints)); } catch (_) {}
+      const el = $('hint');
+      $('hudBottom').hidden = false;
+      el.textContent = HINTS[m.type];
+      animate(el, { opacity: [0, 1], translateY: [8, 0], duration: 400, ease: 'outExpo' });
+      clearTimeout(showFirstHints.t);
+      showFirstHints.t = setTimeout(() => { $('hudBottom').hidden = true; }, 3200);
+      return;
+    }
+  }
+}
+const shieldBubble = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(R * 1.9, 1)), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 }));
+shieldBubble.visible = false;
+ballRig.add(shieldBubble);
 let hudTick = 0;
 function runFrame(dt) {
+  shieldBubble.visible = !!RUN.shield || RUN.invuln > 0;
+  shieldBubble.rotation.y += dt * 1.5; shieldBubble.rotation.x += dt * 0.7;
+  shieldBubble.material.opacity = RUN.shield ? 0.55 : 0.3 * (0.5 + 0.5 * Math.sin(U.time.value * 30));
   if (G.mode === 'run') runStep(dt);
   else if (G.mode === 'rundying') { const t2 = dt * RUN.moment; RUN.vy -= GRAV * t2 * 0.5; RUN.y += RUN.vy * t2 * 0.5; }
   if (G.mode === 'run' || G.mode === 'rundying') runVisual(dt);
@@ -2492,7 +2579,10 @@ function runFrame(dt) {
     $('runShards').textContent = String(RUN.shards);
     $('focusBar').style.transform = `scaleX(${RUN.focus})`;
     $('dashBar').style.transform = `scaleX(${RUN.dash})`;
-    $('sogBar').style.transform = `scaleX(${RUN.sog / 8})`;
+    const pw = RUN.flight > 0 ? ['flug', RUN.flight / 6] : RUN.sog > 0 ? ['sog', RUN.sog / 8] : RUN.shield ? ['schild', 1] : null;
+    $('sogMeter').hidden = !pw;
+    if (pw) { $('powLabel').textContent = pw[0]; $('sogBar').style.transform = `scaleX(${Math.min(1, pw[1])})`; }
+    showFirstHints();
   }
 }
 
@@ -2699,4 +2789,4 @@ showTitle();
 loop();
 
 // debug / test hook
-window.kippwelt = { vis, forceZone: (z) => { RUN.zone = null; const keep = Math.random; let i = 0; Math.random = () => (i++ === 0 ? ZONES.indexOf(z) / ZONES.length + 0.01 : keep()); startZone(); Math.random = keep; }, endZone, music, buffers, audio, G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };
+window.kippwelt = { __t: { runStep, runVisual, occ, stackAt, faceN, faceCell, crusherH, sweeperX, perim, U, GRAV, JUMP_V, PAD_V, turnRequired, manageSegs, laneShift, runJump, runDash, runPhase, runSlam, wallAhead, speedAt, kv, R }, vis, forceZone: (z) => { RUN.zone = null; const keep = Math.random; let i = 0; Math.random = () => (i++ === 0 ? ZONES.indexOf(z) / ZONES.length + 0.01 : keep()); startZone(); Math.random = keep; }, endZone, music, buffers, audio, G, LEVELS, doAction, startPlay, loadLevel, solve, RUN, startRun, runInput, RUNMAP, faceCell, kv };
